@@ -407,46 +407,112 @@ static bool Compare(T mem_value, T value, CompareType op)
   }
 }
 
-bool CheatsManager::MatchesSearch(u32 addr) const
+std::function<bool(u32)> CheatsManager::CreateMatchFunction(bool* success)
 {
-  const auto text = m_match_value->text();
-  const auto op = static_cast<CompareType>(m_match_operation->currentIndex());
+  const QString text = m_match_value->text();
+
+  if (text.isEmpty())
+  {
+    m_result_label->setText(tr("No search value entered."));
+    *success = false;
+    return nullptr;
+  }
+
+  const CompareType op = static_cast<CompareType>(m_match_operation->currentIndex());
 
   const int base =
       (m_match_decimal->isChecked() ? 10 : (m_match_hexadecimal->isChecked() ? 16 : 8));
 
+  bool conversion_succeeded = false;
+  std::function<bool(u32)> matches_func;
   switch (static_cast<DataType>(m_match_length->currentIndex()))
   {
   case DataType::Byte:
-    return Compare<u8>(PowerPC::HostRead_U8(addr), text.toUShort(nullptr, base) & 0xFF, op);
+  {
+    u8 comparison_value = text.toUShort(&conversion_succeeded, base) & 0xFF;
+    matches_func = [=](u32 addr) {
+      return Compare<u8>(PowerPC::HostRead_U8(addr), comparison_value, op);
+    };
+    break;
+  }
   case DataType::Short:
-    return Compare(PowerPC::HostRead_U16(addr), text.toUShort(nullptr, base), op);
+  {
+    u16 comparison_value = text.toUShort(&conversion_succeeded, base);
+    matches_func = [=](u32 addr) {
+      return Compare(PowerPC::HostRead_U16(addr), comparison_value, op);
+    };
+    break;
+  }
   case DataType::Int:
-    return Compare(PowerPC::HostRead_U32(addr), text.toUInt(nullptr, base), op);
+  {
+    u32 comparison_value = text.toUInt(&conversion_succeeded, base);
+    matches_func = [=](u32 addr) {
+      return Compare(PowerPC::HostRead_U32(addr), comparison_value, op);
+    };
+    break;
+  }
   case DataType::Float:
-    return Compare(PowerPC::HostRead_F32(addr), text.toFloat(), op);
+  {
+    float comparison_value = text.toFloat(&conversion_succeeded);
+    matches_func = [=](u32 addr) {
+      return Compare(PowerPC::HostRead_F32(addr), comparison_value, op);
+    };
+    break;
+  }
   case DataType::Double:
-    return Compare(PowerPC::HostRead_F64(addr), text.toDouble(), op);
+  {
+    double comparison_value = text.toDouble(&conversion_succeeded);
+    matches_func = [=](u32 addr) {
+      return Compare(PowerPC::HostRead_F64(addr), comparison_value, op);
+    };
+    break;
+  }
   case DataType::String:
   {
-    bool is_equal = std::equal(text.toUtf8().cbegin(), text.toUtf8().cend(),
-                               reinterpret_cast<char*>(Memory::m_pRAM + addr - 0x80000000));
-
-    // String only supports equals and not equals comparisons because the other ones frankly don't
-    // make any sense here
-    switch (op)
+    if (op != CompareType::Equal && op != CompareType::NotEqual)
     {
-    case CompareType::Equal:
-      return is_equal;
-    case CompareType::NotEqual:
-      return !is_equal;
-    default:
-      return false;
+      m_result_label->setText(tr("String values can only be compared using equality."));
+      *success = false;
+      return nullptr;
     }
+
+    conversion_succeeded = true;
+
+    matches_func = [this, op](u32 addr) {
+      // This is probably slow to do every time but we can't capture
+      // the 'text' variable since it goes out of scope.
+      const QString lambda_text = m_match_value->text();
+
+      const QByteArray utf8_bytes = lambda_text.toUtf8();
+      bool is_equal = std::equal(utf8_bytes.cbegin(), utf8_bytes.cend(),
+                                 reinterpret_cast<char*>(Memory::m_pRAM + addr - 0x80000000));
+      switch (op)
+      {
+      case CompareType::Equal:
+        return is_equal;
+      case CompareType::NotEqual:
+        return !is_equal;
+      default:
+        // This should never occur since we've already checked the type of op
+        return false;
+      }
+    };
+    break;
   }
   }
 
-  return false;
+  if (!conversion_succeeded)
+  {
+    m_result_label->setText(
+        tr("Cannot interpret the given value.\nHave you chosen the right type?"));
+    *success = false;
+    return nullptr;
+  }
+  else
+  {
+    *success = true;
+    return matches_func;
+  }
 }
 
 void CheatsManager::NewSearch()
@@ -460,10 +526,15 @@ void CheatsManager::NewSearch()
     return;
   }
 
+  bool conversion_succeded;
+  std::function<bool(u32)> matches_func = CreateMatchFunction(&conversion_succeded);
+  if (!conversion_succeded)
+    return;
+
   Core::RunAsCPUThread([&] {
     for (u32 i = 0; i < Memory::REALRAM_SIZE - GetTypeSize(); i++)
     {
-      if (PowerPC::HostIsRAMAddress(base_address + i) && MatchesSearch(base_address + i))
+      if (PowerPC::HostIsRAMAddress(base_address + i) && matches_func(base_address + i))
         m_results.push_back(
             {base_address + i, static_cast<DataType>(m_match_length->currentIndex())});
     }
@@ -482,11 +553,16 @@ void CheatsManager::NextSearch()
     return;
   }
 
-  Core::RunAsCPUThread([this] {
+  bool conversion_succeded;
+  std::function<bool(u32)> matches_func = CreateMatchFunction(&conversion_succeded);
+  if (!conversion_succeded)
+    return;
+
+  Core::RunAsCPUThread([this, matches_func] {
     m_results.erase(std::remove_if(m_results.begin(), m_results.end(),
-                                   [this](Result r) {
+                                   [this, matches_func](Result r) {
                                      return !PowerPC::HostIsRAMAddress(r.address) ||
-                                            !MatchesSearch(r.address);
+                                            !matches_func(r.address);
                                    }),
                     m_results.end());
   });
