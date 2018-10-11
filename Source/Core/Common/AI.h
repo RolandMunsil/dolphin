@@ -46,7 +46,8 @@ struct ChunkCoordinatesHasher
 
 struct PlayerInfoRetriever
 {
-  bool UpdateInfo() {
+  bool UpdateInfo()
+  {
     vehicle_info_ptr = PowerPC::HostRead_U32(0x803e2218);
     if (vehicle_info_ptr == 0)
     {
@@ -66,6 +67,8 @@ struct PlayerInfoRetriever
   float PlayerSpeed() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x17C); }
 
   u32 CurrentFrame() { return PowerPC::HostRead_U32(vehicle_info_ptr + 0x47C); }
+  u32 CrashToRestoreFrameCount() { return PowerPC::HostRead_U32(vehicle_info_ptr + 0x194); }
+  u16 DuringRestoreFrameCount() { return PowerPC::HostRead_U16(vehicle_info_ptr + 0x214); }
 
   bool GoingTheWrongWay() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x66F); }
 

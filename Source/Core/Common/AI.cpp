@@ -191,7 +191,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   if (pad_index != 0)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Skipping q-learning because pad index is %i", pad_index);
+    AILog("Ignoring input request because pad index is %i", pad_index);
     return {};
   }
 
@@ -219,6 +219,16 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     //AILog("Duplicate request for frame, returning cached input.");
     return cached_inputs;
+  }
+
+  if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
+    player_info_retriever.DuringRestoreFrameCount() > 0)
+  {
+    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    AILog("Skipping q-learning because car is currently crashing or being restored.");
+    did_q_learning_last_frame = false;
+
+    return {};
   }
 
   // TODO: decrease epsilon
@@ -249,8 +259,6 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   Action action_to_take = ChooseAction(state, &action_chosen_randomly);
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
 
-
-  // TODO: optimize logging
   AILog("============================================================");
   AILog("Frame: %i", player_info_retriever.CurrentFrame());
   AILog("State count: %i", chunk_to_actions_map.size());
