@@ -144,6 +144,7 @@
     <ClInclude Include="PcapFile.h" />
     <ClInclude Include="Profiler.h" />
     <ClInclude Include="QoSSession.h" />
+    <ClInclude Include="QState.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="Result.h" />
     <ClInclude Include="ScopeGuard.h" />

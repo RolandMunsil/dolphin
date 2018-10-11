@@ -3,10 +3,13 @@
 #include <random>
 #include <unordered_map>
 
+#include "Core/PowerPC/MMU.h"
+
 #include "InputCommon/GCPadStatus.h"
 
+#include "QState.h"
+
 const size_t INITIAL_MAP_BUCKET_COUNT = 100000;
-const float INITIAL_ACTION_SCORE = 0;
 
 const float CHUNK_SIZE_METERS = 8;
 
@@ -20,43 +23,6 @@ const float LEARNING_RATE = 0.7f;
 
 // Discount rate controls how much the network cares about future rewards
 const float DISCOUNT_RATE = 0.9f;
-
-enum class Action
-{
-  SHARP_TURN_LEFT,
-  SOFT_TURN_LEFT,
-  FORWARD,
-  SOFT_TURN_RIGHT,
-  SHARP_TURN_RIGHT,
-
-  BOOST_AND_SHARP_TURN_LEFT,
-  BOOST_AND_SOFT_TURN_LEFT,
-  BOOST_AND_FORWARD,
-  BOOST_AND_SOFT_TURN_RIGHT,
-  BOOST_AND_SHARP_TURN_RIGHT,
-
-  DRIFT_AND_SHARP_TURN_LEFT,
-  DRIFT_AND_SHARP_TURN_RIGHT,
-
-  // Used so we know the number of actions
-  ACTIONS_COUNT
-};
-
-const std::unordered_map<Action, std::string> ACTION_NAMES = {
-    {Action::SHARP_TURN_LEFT, "Sharp turn left"},
-    {Action::SOFT_TURN_LEFT, "Soft turn left"},
-    {Action::FORWARD, "Forward"},
-    {Action::SOFT_TURN_RIGHT, "Soft turn right"},
-    {Action::SHARP_TURN_RIGHT, "Sharp turn right"},
-
-    {Action::BOOST_AND_SHARP_TURN_LEFT, "Boost+Sharp turn left"},
-    {Action::BOOST_AND_SOFT_TURN_LEFT, "Boost+Soft turn left"},
-    {Action::BOOST_AND_FORWARD, "Boost+Forward"},
-    {Action::BOOST_AND_SOFT_TURN_RIGHT, "Boost+Soft turn right"},
-    {Action::BOOST_AND_SHARP_TURN_RIGHT, "Boost+Sharp turn right"},
-
-    {Action::DRIFT_AND_SHARP_TURN_LEFT, "Drift left"},
-    {Action::DRIFT_AND_SHARP_TURN_RIGHT, "Drift right"}};
 
 struct ChunkCoordinates
 {
@@ -78,48 +44,34 @@ struct ChunkCoordinatesHasher
   }
 };
 
-class QState
+struct PlayerInfoRetriever
 {
-private:
-  float action_scores[(u32)Action::ACTIONS_COUNT];
-
-  void GetBestActionAndScore(Action* best_action, float* best_score)
-  {
-    *best_score = -FLT_MAX;
-    *best_action = (Action)-1;
-
-    for (u32 i = 0; i < (u32)Action::ACTIONS_COUNT; i++)
+  bool UpdateInfo() {
+    vehicle_info_ptr = PowerPC::HostRead_U32(0x803e2218);
+    if (vehicle_info_ptr == 0)
     {
-      if (action_scores[i] > *best_score)
-      {
-        *best_score = action_scores[i];
-        *best_action = (Action)i;
-      }
+      return false;
+    }
+    else
+    {
+      track_relationship_info_ptr = PowerPC::HostRead_U32(vehicle_info_ptr - 0x20);
+      return true;
     }
   }
 
-public:
-  QState() { std::fill_n(action_scores, (u32)Action::ACTIONS_COUNT, INITIAL_ACTION_SCORE); }
+  float PlayerVehicleX() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C); }
+  float PlayerVehicleY() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C + 4); }
+  float PlayerVehicleZ() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C + 8); }
 
-  float ScoreForAction(Action action) { return action_scores[(u32)action]; }
+  float PlayerSpeed() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x17C); }
 
-  void SetActionScore(Action action, float score) { action_scores[(u32)action] = score; }
+  u32 CurrentFrame() { return PowerPC::HostRead_U32(vehicle_info_ptr + 0x47C); }
 
-  Action BestAction()
-  {
-    float best_score;
-    Action best_action;
-    GetBestActionAndScore(&best_action, &best_score);
-    return best_action;
-  }
+  bool GoingTheWrongWay() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x66F); }
 
-  float BestScore()
-  {
-    float best_score;
-    Action best_action;
-    GetBestActionAndScore(&best_action, &best_score);
-    return best_score;
-  }
+private:
+  u32 vehicle_info_ptr;
+  u32 track_relationship_info_ptr;
 };
 
 class AI
@@ -133,9 +85,9 @@ public:
   GCPadStatus GetNextInput(const u32 pad_index);
 
 private:
-  ChunkCoordinates CalculateUserChunk(u32 player_state_ptr);
+  ChunkCoordinates CalculateUserChunk();
   QState* GetStateForChunk(ChunkCoordinates chunk);
-  float CalculateReward(u32 player_state_ptr);
+  float CalculateReward();
   Action ChooseAction(QState* state, bool* action_chosen_randomly);
   GCPadStatus GenerateInputsFromAction(Action action);
 
@@ -144,6 +96,8 @@ private:
   std::uniform_int_distribution<u32> action_index_distribution;
 
   std::unordered_map<ChunkCoordinates, QState*, ChunkCoordinatesHasher> chunk_to_actions_map;
+
+  PlayerInfoRetriever player_info_retriever;
 
   bool did_q_learning_last_frame;
   QState* previous_state;

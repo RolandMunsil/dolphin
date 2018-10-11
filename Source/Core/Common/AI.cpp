@@ -8,7 +8,6 @@
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 
-#include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 
 template <typename... Args>
@@ -17,31 +16,6 @@ void AILog(const char* str, Args... args)
   std::string formatted = StringFromFormat(str, args...);
   LogListener*& logWindowListener = LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
   logWindowListener->Log(LogTypes::LOG_LEVELS::LINFO, formatted.c_str());
-}
-
-float GetPlayerVehicleX(u32 vehicle_info_ptr)
-{
-  return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C);
-}
-
-float GetPlayerVehicleY(u32 vehicle_info_ptr)
-{
-  return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C + 4);
-}
-
-float GetPlayerVehicleZ(u32 vehicle_info_ptr)
-{
-  return PowerPC::HostRead_F32(vehicle_info_ptr + 0x7C + 8);
-}
-
-float GetPlayerSpeed(u32 vehicle_info_ptr)
-{
-  return PowerPC::HostRead_F32(vehicle_info_ptr + 0x17C);
-}
-
-u32 GetCurrentFrame(u32 vehicle_info_ptr)
-{
-  return PowerPC::HostRead_U32(vehicle_info_ptr + 0x47C);
 }
 
 AI::AI()
@@ -76,12 +50,12 @@ bool AI::IsEnabled(GCPadStatus userInput)
   return enabled;
 }
 
-ChunkCoordinates AI::CalculateUserChunk(u32 player_state_ptr)
+ChunkCoordinates AI::CalculateUserChunk()
 {
   ChunkCoordinates userChunk = {
-      (s16)std::floorf(GetPlayerVehicleX(player_state_ptr) / CHUNK_SIZE_METERS),
-      (s16)std::floorf(GetPlayerVehicleY(player_state_ptr) / CHUNK_SIZE_METERS),
-      (s16)std::floorf(GetPlayerVehicleZ(player_state_ptr) / CHUNK_SIZE_METERS)};
+      (s16)std::floorf(player_info_retriever.PlayerVehicleX() / CHUNK_SIZE_METERS),
+      (s16)std::floorf(player_info_retriever.PlayerVehicleY() / CHUNK_SIZE_METERS),
+      (s16)std::floorf(player_info_retriever.PlayerVehicleZ() / CHUNK_SIZE_METERS)};
 
   return userChunk;
 }
@@ -96,25 +70,20 @@ QState* AI::GetStateForChunk(ChunkCoordinates chunk)
   return state_ref;
 }
 
-float AI::CalculateReward(u32 player_state_ptr)
+float AI::CalculateReward()
 {
   // TODO: use these?
   // 0x584 - obstacle collision
   // 0x588	- track collision
 
   // u32 player_race_status_ptr = PowerPC::HostRead_U32(player_state_ptr - 0x20);
-  // bool going_the_wrong_way = PowerPC::HostRead_U8(player_race_status_ptr + 0x66F);
   // u32 checkpoint_number_also = PowerPC::HostRead_U32(player_race_status_ptr + 0x74);
-
-  // float userPosX = PowerPC::HostRead_F32(player_state_ptr + 0x7C);
-  // float userPosY = PowerPC::HostRead_F32(player_state_ptr + 0x7C + 4);
-  // float userPosZ = PowerPC::HostRead_F32(player_state_ptr + 0x7C + 8);
 
   // u32 checkpoint_number = PowerPC::HostRead_U32(player_state_ptr + 0x1CC);
   // float frac_dist_to_next_checkpoint = PowerPC::HostRead_F32(player_state_ptr + 0x1D0);
 
   // TODO: use this or position diff?
-  return GetPlayerSpeed(player_state_ptr);
+  return player_info_retriever.PlayerSpeed() * (player_info_retriever.GoingTheWrongWay() ? -1 : 1);
 }
 
 Action AI::ChooseAction(QState* state, bool* action_chosen_randomly)
@@ -235,9 +204,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     return {};
   }
 
-  u32 player_state_ptr = PowerPC::HostRead_U32(0x803e2218);
-
-  if (player_state_ptr == 0)
+  if (!player_info_retriever.UpdateInfo())
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     AILog("Skipping q-learning because pointer to player state is null");
@@ -246,7 +213,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     return {};
   }
 
-  u32 frame = GetCurrentFrame(player_state_ptr);
+  u32 frame = player_info_retriever.CurrentFrame();
   if (frame == frame_at_last_input_request)
   {
     //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -257,7 +224,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   // TODO: decrease epsilon
   // TODO: double-check that you're doing everything properly
 
-  ChunkCoordinates userChunk = CalculateUserChunk(player_state_ptr);
+  ChunkCoordinates userChunk = CalculateUserChunk();
   QState* state = GetStateForChunk(userChunk);
 
   float reward = NAN;
@@ -267,7 +234,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   if (did_q_learning_last_frame)
   {
     // Update q-value using bellman equation
-    reward = CalculateReward(player_state_ptr);
+    reward = CalculateReward();
 
     old_score = previous_state->ScoreForAction(previous_action);
     max_future_reward = state->BestScore();
@@ -285,12 +252,12 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   // TODO: optimize logging
   AILog("============================================================");
-  AILog("Frame: %i", PowerPC::HostRead_U32(player_state_ptr + 0x47C));
+  AILog("Frame: %i", player_info_retriever.CurrentFrame());
   AILog("State count: %i", chunk_to_actions_map.size());
-  AILog("Pos:::: (%4f, %4f, %4f)", GetPlayerVehicleX(player_state_ptr),
-         GetPlayerVehicleY(player_state_ptr), GetPlayerVehicleZ(player_state_ptr));
+  AILog("Pos:::: (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
+        player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());
   AILog("Chunk:: (%5i, %5i, %5i)", userChunk.x, userChunk.y, userChunk.z);
-  AILog("Speed:: %10f", GetPlayerSpeed(player_state_ptr));
+  AILog("Speed:: %7.2f", player_info_retriever.PlayerSpeed());
   AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
          state->ScoreForAction(Action::SHARP_TURN_LEFT),
          state->ScoreForAction(Action::SOFT_TURN_LEFT),
