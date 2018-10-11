@@ -43,6 +43,11 @@ float GetPlayerSpeed(u32 vehicle_info_ptr)
   return PowerPC::HostRead_F32(vehicle_info_ptr + 0x17C);
 }
 
+u32 GetCurrentFrame(u32 vehicle_info_ptr)
+{
+  return PowerPC::HostRead_U32(vehicle_info_ptr + 0x47C);
+}
+
 AI::AI()
 {
   enabled = false;
@@ -218,9 +223,6 @@ GCPadStatus AI::GenerateInputsFromAction(Action action)
 
 GCPadStatus AI::GetNextInput(const u32 pad_index)
 {
-  // TODO: it seems like it's getting called multiple times per frame/update - we should ignore
-  // these.
-
   if (pad_index != 0)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -246,6 +248,14 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     did_q_learning_last_frame = false;
 
     return {};
+  }
+
+  u32 frame = GetCurrentFrame(player_state_ptr);
+  if (frame == frame_at_last_input_request)
+  {
+    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    AILog("Duplicate request for frame, returning cached input.");
+    return cached_inputs;
   }
 
   // TODO: use this???
@@ -282,6 +292,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   // TODO: optimize logging
   AILog("============================================================");
+  AILog("Frame: %i", PowerPC::HostRead_U32(player_state_ptr + 0x47C));
   AILog("State count: %i", chunk_to_actions_map.size());
   AILog("Pos:::: (%4f, %4f, %4f)", GetPlayerVehicleX(player_state_ptr),
          GetPlayerVehicleY(player_state_ptr), GetPlayerVehicleZ(player_state_ptr));
@@ -331,6 +342,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   did_q_learning_last_frame = true;
   previous_state = state;
   previous_action = action_to_take;
+
+  frame_at_last_input_request = frame;
+  cached_inputs = inputs;
 
   return inputs;
 }

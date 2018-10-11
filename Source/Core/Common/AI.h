@@ -151,4 +151,7 @@ private:
 
   bool enabled;
   bool toggle_button_pressed_previous;
+
+  u32 frame_at_last_input_request;
+  GCPadStatus cached_inputs;
 };
