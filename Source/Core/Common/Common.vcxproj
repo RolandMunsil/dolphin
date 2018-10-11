@@ -36,6 +36,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClInclude Include="AI.h" />
     <ClInclude Include="Align.h" />
     <ClInclude Include="Analytics.h" />
     <ClInclude Include="Assert.h" />
@@ -172,6 +173,7 @@
     <ClInclude Include="Logging\LogManager.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AI.cpp" />
     <ClCompile Include="Analytics.cpp" />
     <ClCompile Include="CDUtils.cpp" />
     <ClCompile Include="ColorUtil.cpp" />

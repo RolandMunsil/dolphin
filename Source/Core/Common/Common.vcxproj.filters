@@ -19,6 +19,9 @@
     <Filter Include="Debug">
       <UniqueIdentifier>{c6eef5b2-5e78-4f8c-8a51-8a4ffb768137}</UniqueIdentifier>
     </Filter>
+    <Filter Include="AI">
+      <UniqueIdentifier>{45975e48-49b7-4995-892a-b14ba56cbb2b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Align.h" />
@@ -275,6 +278,9 @@
     <ClInclude Include="Debug\MemoryPatches.h">
       <Filter>Debug</Filter>
     </ClInclude>
+    <ClInclude Include="AI.h">
+      <Filter>AI</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CDUtils.cpp" />
@@ -354,6 +360,9 @@
     <ClCompile Include="QoSSession.cpp" />
     <ClCompile Include="Debug\MemoryPatches.cpp">
       <Filter>Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="AI.cpp">
+      <Filter>AI</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

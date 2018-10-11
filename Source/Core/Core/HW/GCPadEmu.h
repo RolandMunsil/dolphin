@@ -9,6 +9,8 @@
 #include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
 #include "InputCommon/ControllerEmu/ControllerEmu.h"
 
+#include "Common/AI.h"
+
 struct GCPadStatus;
 
 namespace ControllerEmu
@@ -55,6 +57,8 @@ private:
   ControllerEmu::Buttons* m_mic;
   ControllerEmu::ControlGroup* m_options;
   ControllerEmu::BooleanSetting* m_always_connected;
+
+  AI* ai;
 
   const unsigned int m_index;
 

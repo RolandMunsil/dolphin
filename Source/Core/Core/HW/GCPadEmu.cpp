@@ -50,6 +50,8 @@ static const char* const named_triggers[] = {
 
 GCPad::GCPad(const unsigned int index) : m_index(index)
 {
+  ai = new AI();
+
   // buttons
   groups.emplace_back(m_buttons = new ControllerEmu::Buttons(_trans("Buttons")));
   for (const char* named_button : named_buttons)
@@ -173,6 +175,11 @@ GCPadStatus GCPad::GetInput() const
   m_triggers->GetState(&pad.button, trigger_bitmasks, triggers.data());
   pad.triggerLeft = static_cast<u8>(triggers[0] * 0xFF);
   pad.triggerRight = static_cast<u8>(triggers[1] * 0xFF);
+
+  if (ai->IsEnabled(pad))
+  {
+    return ai->GetNextInput(m_index);
+  }
 
   return pad;
 }
