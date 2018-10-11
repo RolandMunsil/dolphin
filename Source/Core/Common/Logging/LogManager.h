@@ -54,6 +54,8 @@ public:
 
   void SaveSettings();
 
+  std::array<LogListener*, LogListener::NUMBER_OF_LISTENERS> GetListeners() { return m_listeners; }
+
 private:
   struct LogContainer
   {

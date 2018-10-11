@@ -22,7 +22,7 @@
 #include "DolphinQt/Settings.h"
 
 // Delay in ms between calls of UpdateLog()
-constexpr int UPDATE_LOG_DELAY = 100;
+constexpr int UPDATE_LOG_DELAY = 15;
 // Maximum lines to process at a time
 constexpr int MAX_LOG_LINES = 200;
 // Timestamp length
@@ -134,6 +134,7 @@ void LogWidget::CreateWidgets()
   setWidget(widget);
 
   m_log_text->setReadOnly(true);
+  m_log_text->document()->setMaximumBlockCount(1000);
 
   QPalette palette = m_log_text->palette();
   palette.setColor(QPalette::Base, Qt::black);
@@ -185,36 +186,43 @@ void LogWidget::SaveSettings()
   UpdateFont();
 }
 
+// void LogWidget::Log(LogTypes::LOG_LEVELS level, const char* text)
+//{
+//  std::lock_guard<std::mutex> lock(m_log_mutex);
+//
+//  const char* color = "white";
+//
+//  switch (level)
+//  {
+//  case LogTypes::LOG_LEVELS::LERROR:
+//    color = "red";
+//    break;
+//  case LogTypes::LOG_LEVELS::LWARNING:
+//    color = "yellow";
+//    break;
+//  case LogTypes::LOG_LEVELS::LNOTICE:
+//    color = "lime";
+//    break;
+//  case LogTypes::LOG_LEVELS::LINFO:
+//    color = "cyan";
+//    break;
+//  case LogTypes::LOG_LEVELS::LDEBUG:
+//    color = "lightgrey";
+//    break;
+//  }
+//
+//  m_log_queue.push(
+//      QStringLiteral("%1 <font color='%2'>%3</font>")
+//          .arg(QString::fromStdString(std::string(text).substr(0, TIMESTAMP_LENGTH)),
+//               QString::fromStdString(color),
+//               QString::fromStdString(std::string(text).substr(TIMESTAMP_LENGTH)).toHtmlEscaped()));
+//}
+
 void LogWidget::Log(LogTypes::LOG_LEVELS level, const char* text)
 {
-  std::lock_guard<std::mutex> lock(m_log_mutex);
+    std::lock_guard<std::mutex> lock(m_log_mutex);
 
-  const char* color = "white";
-
-  switch (level)
-  {
-  case LogTypes::LOG_LEVELS::LERROR:
-    color = "red";
-    break;
-  case LogTypes::LOG_LEVELS::LWARNING:
-    color = "yellow";
-    break;
-  case LogTypes::LOG_LEVELS::LNOTICE:
-    color = "lime";
-    break;
-  case LogTypes::LOG_LEVELS::LINFO:
-    color = "cyan";
-    break;
-  case LogTypes::LOG_LEVELS::LDEBUG:
-    color = "lightgrey";
-    break;
-  }
-
-  m_log_queue.push(
-      QStringLiteral("%1 <font color='%2'>%3</font>")
-          .arg(QString::fromStdString(std::string(text).substr(0, TIMESTAMP_LENGTH)),
-               QString::fromStdString(color),
-               QString::fromStdString(std::string(text).substr(TIMESTAMP_LENGTH)).toHtmlEscaped()));
+    m_log_queue.push(QString::fromUtf8(text));
 }
 
 void LogWidget::closeEvent(QCloseEvent*)

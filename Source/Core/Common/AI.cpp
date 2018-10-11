@@ -11,16 +11,12 @@
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 
-/*#define AI_LOG(FMT_STR, ...)                                                                       \
-  do                                                                                               \
-  {                                                                                                \
-    consoleListener.Log(LogTypes::LOG_LEVELS::LNOTICE, StringFromFormat(FMT_STR, __VA_ARGS__).c_str());    \
-  } while (0)     */                                                                                 \
-
 template <typename... Args>
 void AILog(const char* str, Args... args)
 {
-  NOTICE_LOG(COMMON, str, args...);
+  std::string formatted = StringFromFormat(str, args...);
+  LogListener*& logWindowListener = LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
+  logWindowListener->Log(LogTypes::LOG_LEVELS::LINFO, formatted.c_str());
 }
 
 float GetPlayerVehicleX(u32 vehicle_info_ptr)
@@ -253,13 +249,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   u32 frame = GetCurrentFrame(player_state_ptr);
   if (frame == frame_at_last_input_request)
   {
-    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Duplicate request for frame, returning cached input.");
+    //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    //AILog("Duplicate request for frame, returning cached input.");
     return cached_inputs;
   }
-
-  // TODO: use this???
-  // u32 countdown_to_restore = PowerPC::HostRead_U32(player_state_ptr + 0x214);
 
   // TODO: decrease epsilon
   // TODO: double-check that you're doing everything properly
