@@ -10,6 +10,7 @@
 #include "QState.h"
 
 const size_t INITIAL_MAP_BUCKET_COUNT = 100000;
+const u32 SECONDS_BETWEEN_STATE_SAVES = 60;
 
 const float CHUNK_SIZE_METERS = 8;
 
@@ -93,6 +94,8 @@ private:
   float CalculateReward();
   Action ChooseAction(QState* state, bool* action_chosen_randomly);
   GCPadStatus GenerateInputsFromAction(Action action);
+
+  void SaveStateToLog();
 
   std::default_random_engine generator;
   std::uniform_real_distribution<float> real_distribution;

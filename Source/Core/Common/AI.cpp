@@ -1,5 +1,7 @@
 #include "AI.h"
 
+#include <chrono>
+
 #include "StringUtil.h"
 
 #include "Common/Common.h"
@@ -14,8 +16,58 @@ template <typename... Args>
 void AILog(const char* str, Args... args)
 {
   std::string formatted = StringFromFormat(str, args...);
-  LogListener*& logWindowListener = LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
+  LogListener*& logWindowListener =
+      LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
   logWindowListener->Log(LogTypes::LOG_LEVELS::LINFO, formatted.c_str());
+}
+
+template <typename... Args>
+void LogToFileListener(LogListener*& fileListener, const char* str, Args... args)
+{
+  std::ostringstream oss;
+  oss << str << std::endl;
+  fileListener->Log(LogTypes::LOG_LEVELS::LINFO,
+                    StringFromFormat(oss.str().c_str(), args...).c_str());
+}
+
+void AI::SaveStateToLog()
+{
+  std::chrono::time_point start_time = std::chrono::system_clock::now();
+
+  LogListener*& fileListener =
+      LogManager::GetInstance()->GetListeners()[LogListener::FILE_LISTENER];
+
+  LogToFileListener(fileListener, "===================== BEGIN STATE =====================");
+  LogToFileListener(fileListener, "___SUMMARY INFO___:");
+  LogToFileListener(fileListener, "Frame Ct total learning: %i", learning_occured_frame_count);
+  LogToFileListener(fileListener, "Frame Ct skip because can't access info: %i",
+                    skip_learning_because_cant_access_info_frame_count);
+  LogToFileListener(fileListener, "Frame Ct skip learning because death: %i",
+                    skip_learning_because_crashing_frame_count);
+  LogToFileListener(fileListener, "Frame Ct gen inputs but don't learn: %i",
+                    generate_inputs_but_dont_learn_frame_count);
+  LogToFileListener(fileListener, "State count: %i", chunk_to_actions_map.size());
+  LogToFileListener(fileListener, "___Q TABLE___:");
+
+  for (auto const& [key, val] : chunk_to_actions_map)
+  {
+    std::ostringstream oss;
+    for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
+    {
+      oss << std::setprecision(10) << val->ScoreForAction((Action)a) << ",";
+    }
+    LogToFileListener(fileListener, "(%i,%i,%i)={%s}", key.x, key.y, key.z, oss.str().c_str());
+  }
+  LogToFileListener(fileListener, "====================== END STATE ======================");
+
+  std::chrono::time_point end_time = std::chrono::system_clock::now();
+
+  std::ostringstream oss;
+  oss << "Time to log: "
+      << std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()
+      << "microseconds";
+
+  LogToFileListener(fileListener, oss.str().c_str());
 }
 
 AI::AI()
@@ -223,19 +275,24 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   u32 frame = player_info_retriever.CurrentFrame();
   if (frame == frame_at_last_input_request)
   {
-    //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    //AILog("Duplicate request for frame, returning cached input.");
+    // AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    // AILog("Duplicate request for frame, returning cached input.");
     return cached_inputs;
+  }
+  else
+  {
+    frame_at_last_input_request = frame;
   }
 
   if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
-    player_info_retriever.DuringRestoreFrameCount() > 0)
+      player_info_retriever.DuringRestoreFrameCount() > 0)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     AILog("Skipping q-learning because car is currently crashing or being restored.");
     did_q_learning_last_frame = false;
     skip_learning_because_crashing_frame_count++;
 
+    cached_inputs = {};
     return {};
   }
 
@@ -274,6 +331,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
 
   AILog("============================================================");
+
+  if (learning_occured_frame_count % (SECONDS_BETWEEN_STATE_SAVES * 60) == 0)
+  {
+    SaveStateToLog();
+    AILog("==================== STATE SAVED TO LOG ====================");
+  }
+
   AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
   AILog("Frame Ct skip because can't access info: %i", skip_learning_because_cant_access_info_frame_count);
   AILog("Frame Ct skip learning because death:    %i", skip_learning_because_crashing_frame_count);
@@ -285,20 +349,20 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   AILog("Chunk:: (%5i, %5i, %5i)", userChunk.x, userChunk.y, userChunk.z);
   AILog("Speed:: %7.2f", player_info_retriever.PlayerSpeed());
   AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
-         state->ScoreForAction(Action::SHARP_TURN_LEFT),
-         state->ScoreForAction(Action::SOFT_TURN_LEFT),
-         state->ScoreForAction(Action::FORWARD),
-         state->ScoreForAction(Action::SOFT_TURN_RIGHT),
-         state->ScoreForAction(Action::SHARP_TURN_RIGHT));
+        state->ScoreForAction(Action::SHARP_TURN_LEFT),
+        state->ScoreForAction(Action::SOFT_TURN_LEFT),
+        state->ScoreForAction(Action::FORWARD),
+        state->ScoreForAction(Action::SOFT_TURN_RIGHT),
+        state->ScoreForAction(Action::SHARP_TURN_RIGHT));
   AILog("::::::: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)",
-         state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
-         state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
-         state->ScoreForAction(Action::BOOST_AND_FORWARD),
-         state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
-         state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
+        state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
+        state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
+        state->ScoreForAction(Action::BOOST_AND_FORWARD),
+        state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
+        state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
   AILog("::::::: [%7.2f,        ,        ,        , %7.2f] (drift)",
-         state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
-         state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
+        state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
+        state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
   AILog("Action type:: %s", ACTION_NAMES.at(action_to_take).c_str());
   AILog("Way chosen::: %s", action_chosen_randomly ? "RANDOM" : "BEST");
   AILog("Action score: %f", state->ScoreForAction(action_to_take));
@@ -323,13 +387,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("[");
   }
 
-  // TODO: state saving
-
   did_q_learning_last_frame = true;
   previous_state = state;
   previous_action = action_to_take;
 
-  frame_at_last_input_request = frame;
   cached_inputs = inputs;
 
   return inputs;
