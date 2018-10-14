@@ -90,7 +90,7 @@ public:
 
 private:
   ChunkCoordinates CalculateUserChunk();
-  QState* GetStateForChunk(ChunkCoordinates chunk);
+  QState* GetCurrentQState(ChunkCoordinates chunk);
   float CalculateReward();
   Action ChooseAction(QState* state, bool* action_chosen_randomly);
   GCPadStatus GenerateInputsFromAction(Action action);
@@ -101,7 +101,7 @@ private:
   std::uniform_real_distribution<float> real_distribution;
   std::uniform_int_distribution<u32> action_index_distribution;
 
-  std::unordered_map<ChunkCoordinates, QState*, ChunkCoordinatesHasher> chunk_to_actions_map;
+  std::unordered_map<ChunkCoordinates, ChunkStates*, ChunkCoordinatesHasher> chunk_to_states_map;
 
   PlayerInfoRetriever player_info_retriever;
 

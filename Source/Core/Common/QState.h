@@ -85,3 +85,15 @@ public:
     return best_score;
   }
 };
+
+struct ChunkStates
+{
+  QState going_right_way_state;
+  QState going_wrong_way_state;
+
+  ChunkStates()
+  {
+    going_right_way_state = QState();
+    going_wrong_way_state = QState();
+  }
+};
