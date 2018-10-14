@@ -30,6 +30,11 @@ AI::AI()
 
   chunk_to_actions_map = std::unordered_map<ChunkCoordinates, QState*, ChunkCoordinatesHasher>(
       INITIAL_MAP_BUCKET_COUNT);
+
+  learning_occured_frame_count = 0;
+  skip_learning_because_cant_access_info_frame_count = 0;
+  skip_learning_because_crashing_frame_count = 0;
+  generate_inputs_but_dont_learn_frame_count = 0;
 }
 
 bool AI::IsEnabled(GCPadStatus userInput)
@@ -200,6 +205,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     AILog("Skipping q-learning because address translation is disabled");
     did_q_learning_last_frame = false;
+    skip_learning_because_cant_access_info_frame_count++;
 
     return {};
   }
@@ -209,6 +215,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     AILog("Skipping q-learning because pointer to player state is null");
     did_q_learning_last_frame = false;
+    skip_learning_because_cant_access_info_frame_count++;
 
     return {};
   }
@@ -227,6 +234,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     AILog("Skipping q-learning because car is currently crashing or being restored.");
     did_q_learning_last_frame = false;
+    skip_learning_because_crashing_frame_count++;
 
     return {};
   }
@@ -243,6 +251,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   float new_score = NAN;
   if (did_q_learning_last_frame)
   {
+    learning_occured_frame_count++;
+
     // Update q-value using bellman equation
     reward = CalculateReward();
 
@@ -254,13 +264,21 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     new_score = old_score + (LEARNING_RATE * learned_score);
     previous_state->SetActionScore(previous_action, new_score);
   }
+  else
+  {
+    generate_inputs_but_dont_learn_frame_count++;
+  }
 
   bool action_chosen_randomly;
   Action action_to_take = ChooseAction(state, &action_chosen_randomly);
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
 
   AILog("============================================================");
-  AILog("Frame: %i", player_info_retriever.CurrentFrame());
+  AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
+  AILog("Frame Ct skip because can't access info: %i", skip_learning_because_cant_access_info_frame_count);
+  AILog("Frame Ct skip learning because death:    %i", skip_learning_because_crashing_frame_count);
+  AILog("Frame Ct gen inputs but don't learn:     %i", generate_inputs_but_dont_learn_frame_count);
+  AILog("Game reported frame:                     %i", player_info_retriever.CurrentFrame());
   AILog("State count: %i", chunk_to_actions_map.size());
   AILog("Pos:::: (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
         player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());

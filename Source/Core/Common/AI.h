@@ -111,4 +111,9 @@ private:
 
   u32 frame_at_last_input_request;
   GCPadStatus cached_inputs;
+
+  u32 learning_occured_frame_count;
+  u32 skip_learning_because_cant_access_info_frame_count;
+  u32 skip_learning_because_crashing_frame_count;
+  u32 generate_inputs_but_dont_learn_frame_count;
 };
