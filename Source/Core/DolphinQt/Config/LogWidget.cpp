@@ -22,7 +22,7 @@
 #include "DolphinQt/Settings.h"
 
 // Delay in ms between calls of UpdateLog()
-constexpr int UPDATE_LOG_DELAY = 15;
+constexpr int UPDATE_LOG_DELAY = 30;
 // Maximum lines to process at a time
 constexpr int MAX_LOG_LINES = 200;
 // Timestamp length

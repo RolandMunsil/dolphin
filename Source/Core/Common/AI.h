@@ -119,4 +119,7 @@ private:
   u32 skip_learning_because_cant_access_info_frame_count;
   u32 skip_learning_because_crashing_frame_count;
   u32 generate_inputs_but_dont_learn_frame_count;
+
+  bool debug_info_enabled;
+  bool debug_info_enabled_button_pressed_previous;
 };

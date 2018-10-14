@@ -68,10 +68,8 @@ void AI::SaveStateToLog()
                               << ",";
     }
 
-
     LogToFileListener(fileListener, "(%i,%i,%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
-                      chunk_coord.z,
-                      right_way_values_string.str().c_str(),
+                      chunk_coord.z, right_way_values_string.str().c_str(),
                       wrong_way_values_string.str().c_str());
   }
   LogToFileListener(fileListener, "====================== END STATE ======================");
@@ -103,10 +101,25 @@ AI::AI()
   skip_learning_because_cant_access_info_frame_count = 0;
   skip_learning_because_crashing_frame_count = 0;
   generate_inputs_but_dont_learn_frame_count = 0;
+  debug_info_enabled = true;
 }
 
 bool AI::IsEnabled(GCPadStatus userInput)
 {
+  if (userInput.button & PAD_BUTTON_X)
+  {
+    if (!debug_info_enabled_button_pressed_previous)
+    {
+      // toggle
+      debug_info_enabled = !debug_info_enabled;
+    }
+    debug_info_enabled_button_pressed_previous = true;
+  }
+  else
+  {
+    debug_info_enabled_button_pressed_previous = false;
+  }
+
   if (userInput.button & PAD_TRIGGER_Z)
   {
     if (!toggle_button_pressed_previous)
@@ -269,10 +282,15 @@ GCPadStatus AI::GenerateInputsFromAction(Action action)
 
 GCPadStatus AI::GetNextInput(const u32 pad_index)
 {
+  std::chrono::time_point calc_start_time = std::chrono::system_clock::now();
+
   if (pad_index != 0)
   {
-    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Ignoring input request because pad index is %i", pad_index);
+    if (debug_info_enabled)
+    {
+      AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+      AILog("Ignoring input request because pad index is %i", pad_index);
+    }
     return {};
   }
 
@@ -311,8 +329,11 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
       player_info_retriever.DuringRestoreFrameCount() > 0)
   {
-    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Skipping q-learning because car is currently crashing or being restored.");
+    if (debug_info_enabled)
+    {
+      AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+      AILog("Skipping q-learning because car is currently crashing or being restored.");
+    }
     did_q_learning_last_frame = false;
     skip_learning_because_crashing_frame_count++;
 
@@ -353,63 +374,77 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   Action action_to_take = ChooseAction(state, &action_chosen_randomly);
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
 
-  AILog("============================================================");
+  if (debug_info_enabled)
+  {
+    std::chrono::time_point calc_end_time = std::chrono::system_clock::now();
+
+    AILog("============================================================");
+
+    AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
+    AILog("Frame Ct skip because can't access info: %i",
+          skip_learning_because_cant_access_info_frame_count);
+    AILog("Frame Ct skip learning because death:    %i",
+          skip_learning_because_crashing_frame_count);
+    AILog("Frame Ct gen inputs but don't learn:     %i",
+          generate_inputs_but_dont_learn_frame_count);
+    AILog("Game reported frame:                     %i", player_info_retriever.CurrentFrame());
+    AILog("Chunk count: %i", chunk_to_states_map.size());
+    AILog("State count: %i", chunk_to_states_map.size() * 2);
+    AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
+          player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());
+    AILog("State:  (%3i, %3i, %3i) | %s way", userChunk.x, userChunk.y, userChunk.z,
+          player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
+    AILog("Speed:  %7.2f", player_info_retriever.PlayerSpeed());
+    AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
+          state->ScoreForAction(Action::SHARP_TURN_LEFT),
+          state->ScoreForAction(Action::SOFT_TURN_LEFT), state->ScoreForAction(Action::FORWARD),
+          state->ScoreForAction(Action::SOFT_TURN_RIGHT),
+          state->ScoreForAction(Action::SHARP_TURN_RIGHT));
+    AILog("        [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)",
+          state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
+          state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
+          state->ScoreForAction(Action::BOOST_AND_FORWARD),
+          state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
+          state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
+    AILog("        [%7.2f,        ,        ,        , %7.2f] (drift)",
+          state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
+          state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
+    AILog("Action type:  %s", ACTION_NAMES.at(action_to_take).c_str());
+    AILog("Way chosen:   %s", action_chosen_randomly ? "RANDOM" : "BEST");
+    AILog("Action score: %f", state->ScoreForAction(action_to_take));
+    if (did_q_learning_last_frame)
+    {
+      if (reward == NAN || max_future_reward == NAN || old_score == NAN || new_score == NAN)
+      {
+        PanicAlert("Score calculation not done even though it should have been!!!!");
+        return {};
+      }
+
+      AILog("Reward for prev action: %f", reward);
+      AILog("Max future reward:      %f", max_future_reward);
+      AILog("Prev action old score:  %f", old_score);
+      AILog("Prev action new score:  %f", new_score);
+    }
+    else
+    {
+      AILog("[");
+      AILog("[ No learning done as AI was not");
+      AILog("[ able to execute last frame. ");
+      AILog("[");
+    }
+
+    std::ostringstream oss;
+    oss << "Time to calculate: "
+         << std::chrono::duration_cast<std::chrono::microseconds>(calc_end_time - calc_start_time)
+                .count()
+         << " microseconds";
+    AILog(oss.str().c_str());
+  }
 
   if (learning_occured_frame_count % (SECONDS_BETWEEN_STATE_SAVES * 60) == 0)
   {
+    AILog("Saved state to dolphin.log");
     SaveStateToLog();
-    AILog("==================== STATE SAVED TO LOG ====================");
-  }
-
-  AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
-  AILog("Frame Ct skip because can't access info: %i",
-        skip_learning_because_cant_access_info_frame_count);
-  AILog("Frame Ct skip learning because death:    %i", skip_learning_because_crashing_frame_count);
-  AILog("Frame Ct gen inputs but don't learn:     %i", generate_inputs_but_dont_learn_frame_count);
-  AILog("Game reported frame:                     %i", player_info_retriever.CurrentFrame());
-  AILog("Chunk count: %i", chunk_to_states_map.size());
-  AILog("State count: %i", chunk_to_states_map.size() * 2);
-  AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
-        player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());
-  AILog("State:  (%3i, %3i, %3i) | %s way", userChunk.x, userChunk.y, userChunk.z,
-        player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
-  AILog("Speed:  %7.2f", player_info_retriever.PlayerSpeed());
-  AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
-        state->ScoreForAction(Action::SHARP_TURN_LEFT),
-        state->ScoreForAction(Action::SOFT_TURN_LEFT), state->ScoreForAction(Action::FORWARD),
-        state->ScoreForAction(Action::SOFT_TURN_RIGHT),
-        state->ScoreForAction(Action::SHARP_TURN_RIGHT));
-  AILog("        [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)",
-        state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
-        state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
-        state->ScoreForAction(Action::BOOST_AND_FORWARD),
-        state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
-        state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
-  AILog("        [%7.2f,        ,        ,        , %7.2f] (drift)",
-        state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
-        state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
-  AILog("Action type:  %s", ACTION_NAMES.at(action_to_take).c_str());
-  AILog("Way chosen:   %s", action_chosen_randomly ? "RANDOM" : "BEST");
-  AILog("Action score: %f", state->ScoreForAction(action_to_take));
-  if (did_q_learning_last_frame)
-  {
-    if (reward == NAN || max_future_reward == NAN || old_score == NAN || new_score == NAN)
-    {
-      PanicAlert("Score calculation not done even though it should have been!!!!");
-      return {};
-    }
-
-    AILog("Reward for prev action: %f", reward);
-    AILog("Max future reward:      %f", max_future_reward);
-    AILog("Prev action old score:  %f", old_score);
-    AILog("Prev action new score:  %f", new_score);
-  }
-  else
-  {
-    AILog("[");
-    AILog("[ No learning done as AI was not");
-    AILog("[ able to execute last frame. ");
-    AILog("[");
   }
 
   did_q_learning_last_frame = true;
