@@ -342,6 +342,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   }
 
   // TODO: vary rates over time
+  // TODO: measure deaths
+  // TODO: record lap times
+  // TODO: log chunk sizes
 
   ChunkCoordinates userChunk = CalculateUserChunk();
   QState* state = GetCurrentQState(userChunk);

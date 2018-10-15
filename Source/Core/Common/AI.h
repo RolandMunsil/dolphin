@@ -12,18 +12,18 @@
 const size_t INITIAL_MAP_BUCKET_COUNT = 100000;
 const u32 SECONDS_BETWEEN_STATE_SAVES = 60;
 
-const float CHUNK_SIZE_METERS = 8;
+const float CHUNK_SIZE_METERS = 16;
 
 // TODO: have these change over time?
 // Exploration rate controls how often it will just pick a random value (instead of picking the best
 // value)
-const float EXPLORATION_RATE = 0.1f;
+const float EXPLORATION_RATE = 0.3f;
 
 // Learning rate controls how quickly the network replaces the old value with the new
-const float LEARNING_RATE = 0.7f;
+const float LEARNING_RATE = 0.6f;
 
 // Discount rate controls how much the network cares about future rewards
-const float DISCOUNT_RATE = 0.9f;
+const float DISCOUNT_RATE = 0.5f;
 
 struct ChunkCoordinates
 {
