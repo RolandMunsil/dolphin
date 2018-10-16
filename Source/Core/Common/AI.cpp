@@ -183,7 +183,7 @@ float AI::CalculateReward()
 Action AI::ChooseAction(QState* state, bool* action_chosen_randomly)
 {
   float rand = real_distribution(generator);
-  if (rand < EXPLORATION_RATE)
+  if (rand < CalculateExplorationRate())
   {
     u32 actionIndex = action_index_distribution(generator);
     *action_chosen_randomly = true;
@@ -382,7 +382,6 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     std::chrono::time_point calc_end_time = std::chrono::system_clock::now();
 
     AILog("============================================================");
-
     AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
     AILog("Frame Ct skip because can't access info: %i",
           skip_learning_because_cant_access_info_frame_count);
@@ -414,6 +413,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
           state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
     AILog("Action type:  %s", ACTION_NAMES.at(action_to_take).c_str());
     AILog("Way chosen:   %s", action_chosen_randomly ? "RANDOM" : "BEST");
+    AILog("Explore rate: %f", CalculateExplorationRate());
     AILog("Action score: %f", state->ScoreForAction(action_to_take));
     if (did_q_learning_last_frame)
     {
