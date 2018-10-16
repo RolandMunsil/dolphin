@@ -57,6 +57,14 @@ struct PlayerInfoRetriever
 
   bool GoingTheWrongWay() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x66F); }
 
+  u8 RestoreCountMod256() { return PowerPC::HostRead_U8(vehicle_info_ptr + 0x4C2); }
+
+  u32 CurrentLapNumber() { return PowerPC::HostRead_U32(track_relationship_info_ptr + 0x678); }
+
+  u8 PreviousLapTimeMins() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x6CC + 0x8); }
+  u8 PreviousLapTimeSecs() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x6CC + 0x9); }
+  u16 PreviousLapTimeMillis() { return PowerPC::HostRead_U16(track_relationship_info_ptr + 0x6CC + 0xA); }
+
 private:
   u32 vehicle_info_ptr;
   u32 track_relationship_info_ptr;
@@ -125,6 +133,13 @@ private:
   u32 skip_learning_because_crashing_frame_count;
   u32 generate_inputs_but_dont_learn_frame_count;
 
+  u32 restore_count;
+
+
   bool debug_info_enabled;
   bool debug_info_enabled_button_pressed_previous;
+
+  u8 prevRestoreCountMod256;
+  u32 prevLapNumber;
+  std::vector<u32> lap_times_millis;
 };

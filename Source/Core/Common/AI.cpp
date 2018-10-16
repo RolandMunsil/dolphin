@@ -22,7 +22,7 @@ void AILog(const char* str, Args... args)
 }
 
 template <typename... Args>
-void LogToFileListener(LogListener*& fileListener, const char* str, Args... args)
+void LogToFileListener(LogListener* fileListener, const char* str, Args... args)
 {
   std::ostringstream oss;
   oss << str << std::endl;
@@ -30,12 +30,14 @@ void LogToFileListener(LogListener*& fileListener, const char* str, Args... args
                     StringFromFormat(oss.str().c_str(), args...).c_str());
 }
 
+LogListener* GetLogFileListener()
+{
+  return LogManager::GetInstance()->GetListeners()[LogListener::FILE_LISTENER];
+}
+
 void AI::SaveStateToLog()
 {
-  std::chrono::time_point start_time = std::chrono::system_clock::now();
-
-  LogListener*& fileListener =
-      LogManager::GetInstance()->GetListeners()[LogListener::FILE_LISTENER];
+  LogListener* fileListener = GetLogFileListener();
 
   LogToFileListener(fileListener, "===================== BEGIN STATE =====================");
   LogToFileListener(fileListener, "___SUMMARY INFO___:");
@@ -46,8 +48,17 @@ void AI::SaveStateToLog()
                     skip_learning_because_crashing_frame_count);
   LogToFileListener(fileListener, "Frame Ct gen inputs but don't learn: %i",
                     generate_inputs_but_dont_learn_frame_count);
+  LogToFileListener(fileListener, "Restore count: %i", restore_count);
   LogToFileListener(fileListener, "Chunk count: %i", chunk_to_states_map.size());
   LogToFileListener(fileListener, "State count: %i", chunk_to_states_map.size() * 2);
+
+  std::ostringstream lap_times_string;
+  for (u32 time : lap_times_millis)
+  {
+    lap_times_string << time << ";";
+  }
+  LogToFileListener(fileListener, "Lap times (ms): %s", lap_times_string.str().c_str());
+
   LogToFileListener(fileListener, "___Q TABLE___:");
 
   for (auto const& [chunk_coord, chunk_states] : chunk_to_states_map)
@@ -73,15 +84,6 @@ void AI::SaveStateToLog()
                       wrong_way_values_string.str().c_str());
   }
   LogToFileListener(fileListener, "====================== END STATE ======================");
-
-  std::chrono::time_point end_time = std::chrono::system_clock::now();
-
-  std::ostringstream oss;
-  oss << "Time to log: "
-      << std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()
-      << " microseconds";
-
-  LogToFileListener(fileListener, oss.str().c_str());
 }
 
 AI::AI()
@@ -102,6 +104,11 @@ AI::AI()
   skip_learning_because_crashing_frame_count = 0;
   generate_inputs_but_dont_learn_frame_count = 0;
   debug_info_enabled = true;
+
+  restore_count = 0;
+  prevRestoreCountMod256 = 0;
+  prevLapNumber = 0;
+  lap_times_millis = std::vector<u32>();
 }
 
 bool AI::IsEnabled(GCPadStatus userInput)
@@ -126,6 +133,23 @@ bool AI::IsEnabled(GCPadStatus userInput)
     {
       // toggle
       enabled = !enabled;
+
+      if (enabled)
+      {
+        AILog("~~~~~~~~~~~~AI ENABLED~~~~~~~~~~~~");
+        LogListener* fileListener = GetLogFileListener();
+        LogToFileListener(fileListener, "________AI ENABLED________");
+        LogToFileListener(fileListener, "Chunk size: %f", CHUNK_SIZE_METERS);
+        LogToFileListener(fileListener, "Hours for exploration rate to get to zero: %f",
+                          EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS);
+        LogToFileListener(fileListener, "Learning rate: %f", LEARNING_RATE);
+        LogToFileListener(fileListener, "Discount rate: %f", DISCOUNT_RATE);
+        LogToFileListener(fileListener, "__END AI ENABLED SECTION__");
+      }
+      else
+      {
+        AILog("~~~~~~~~~~~~AI DISABLED~~~~~~~~~~~~");
+      }
     }
     toggle_button_pressed_previous = true;
   }
@@ -341,10 +365,38 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     return {};
   }
 
-  // TODO: vary rates over time
-  // TODO: measure deaths
+  if (player_info_retriever.CurrentLapNumber() != prevLapNumber)
+  {
+    if (player_info_retriever.CurrentLapNumber() != prevLapNumber + 1)
+    {
+      PanicAlert("Something went wrong during lap number tracking!");
+    }
+
+    u32 lapTimeMillis = player_info_retriever.PreviousLapTimeMillis() +
+                        player_info_retriever.PreviousLapTimeSecs() * 1000 +
+                        player_info_retriever.PreviousLapTimeMins() * 60 * 1000;
+
+    lap_times_millis.push_back(lapTimeMillis);
+    if (lap_times_millis[prevLapNumber] != lapTimeMillis)
+    {
+      PanicAlert("Something went wrong during lap number tracking!");
+    }
+
+    prevLapNumber++;
+  }
+
+  if (player_info_retriever.RestoreCountMod256() != prevRestoreCountMod256)
+  {
+    prevRestoreCountMod256 = player_info_retriever.RestoreCountMod256();
+    restore_count++;
+
+    if (restore_count % 256 != prevRestoreCountMod256)
+    {
+      PanicAlert("Restore count is not being calculated properly!");
+    }
+  }
+
   // TODO: record lap times
-  // TODO: log chunk sizes
 
   ChunkCoordinates userChunk = CalculateUserChunk();
   QState* state = GetCurrentQState(userChunk);
@@ -389,7 +441,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
           skip_learning_because_crashing_frame_count);
     AILog("Frame Ct gen inputs but don't learn:     %i",
           generate_inputs_but_dont_learn_frame_count);
-    AILog("Game reported frame:                     %i", player_info_retriever.CurrentFrame());
+    AILog("Restore count: %i", restore_count);
     AILog("Chunk count: %i", chunk_to_states_map.size());
     AILog("State count: %i", chunk_to_states_map.size() * 2);
     AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
@@ -438,9 +490,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
     std::ostringstream oss;
     oss << "Time to calculate: "
-         << std::chrono::duration_cast<std::chrono::microseconds>(calc_end_time - calc_start_time)
-                .count()
-         << " microseconds";
+        << std::chrono::duration_cast<std::chrono::microseconds>(calc_end_time - calc_start_time)
+               .count()
+        << " microseconds";
     AILog(oss.str().c_str());
   }
 
