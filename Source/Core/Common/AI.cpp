@@ -21,45 +21,44 @@ void AILog(const char* str, Args... args)
   logWindowListener->Log(LogTypes::LOG_LEVELS::LINFO, formatted.c_str());
 }
 
+LogListener* logFileListener = nullptr;
 template <typename... Args>
-void LogToFileListener(LogListener* fileListener, const char* str, Args... args)
+void LogToFileListener(const char* str, Args... args)
 {
+  if (logFileListener == nullptr)
+  {
+    logFileListener = LogManager::GetInstance()->GetListeners()[LogListener::FILE_LISTENER];
+  }
+
   std::ostringstream oss;
   oss << str << std::endl;
-  fileListener->Log(LogTypes::LOG_LEVELS::LINFO,
+  logFileListener->Log(LogTypes::LOG_LEVELS::LINFO,
                     StringFromFormat(oss.str().c_str(), args...).c_str());
-}
-
-LogListener* GetLogFileListener()
-{
-  return LogManager::GetInstance()->GetListeners()[LogListener::FILE_LISTENER];
 }
 
 void AI::SaveStateToLog()
 {
-  LogListener* fileListener = GetLogFileListener();
-
-  LogToFileListener(fileListener, "===================== BEGIN STATE =====================");
-  LogToFileListener(fileListener, "___SUMMARY INFO___:");
-  LogToFileListener(fileListener, "Frame Ct total learning: %i", learning_occured_frame_count);
-  LogToFileListener(fileListener, "Frame Ct skip because can't access info: %i",
+  LogToFileListener("===================== BEGIN STATE =====================");
+  LogToFileListener("___SUMMARY INFO___:");
+  LogToFileListener("Frame Ct total learning: %i", learning_occured_frame_count);
+  LogToFileListener("Frame Ct skip because can't access info: %i",
                     skip_learning_because_cant_access_info_frame_count);
-  LogToFileListener(fileListener, "Frame Ct skip learning because death: %i",
+  LogToFileListener("Frame Ct skip learning because death: %i",
                     skip_learning_because_crashing_frame_count);
-  LogToFileListener(fileListener, "Frame Ct gen inputs but don't learn: %i",
+  LogToFileListener("Frame Ct gen inputs but don't learn: %i",
                     generate_inputs_but_dont_learn_frame_count);
-  LogToFileListener(fileListener, "Restore count: %i", restore_count);
-  LogToFileListener(fileListener, "Chunk count: %i", chunk_to_states_map.size());
-  LogToFileListener(fileListener, "State count: %i", chunk_to_states_map.size() * 2);
+  LogToFileListener("Restore count: %i", restore_count);
+  LogToFileListener("Chunk count: %i", chunk_to_states_map.size());
+  LogToFileListener("State count: %i", chunk_to_states_map.size() * 2);
 
   std::ostringstream lap_times_string;
   for (u32 time : lap_times_millis)
   {
     lap_times_string << time << ";";
   }
-  LogToFileListener(fileListener, "Lap times (ms): %s", lap_times_string.str().c_str());
+  LogToFileListener("Lap times (ms): %s", lap_times_string.str().c_str());
 
-  LogToFileListener(fileListener, "___Q TABLE___:");
+  LogToFileListener("___Q TABLE___:");
 
   for (auto const& [chunk_coord, chunk_states] : chunk_to_states_map)
   {
@@ -79,11 +78,11 @@ void AI::SaveStateToLog()
                               << ",";
     }
 
-    LogToFileListener(fileListener, "(%i,%i,%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
+    LogToFileListener("(%i,%i,%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
                       chunk_coord.z, right_way_values_string.str().c_str(),
                       wrong_way_values_string.str().c_str());
   }
-  LogToFileListener(fileListener, "====================== END STATE ======================");
+  LogToFileListener("====================== END STATE ======================");
 }
 
 AI::AI()
@@ -137,14 +136,13 @@ bool AI::IsEnabled(GCPadStatus userInput)
       if (enabled)
       {
         AILog("~~~~~~~~~~~~AI ENABLED~~~~~~~~~~~~");
-        LogListener* fileListener = GetLogFileListener();
-        LogToFileListener(fileListener, "________AI ENABLED________");
-        LogToFileListener(fileListener, "Chunk size: %f", CHUNK_SIZE_METERS);
-        LogToFileListener(fileListener, "Hours for exploration rate to get to zero: %f",
+        LogToFileListener("________AI ENABLED________");
+        LogToFileListener("Chunk size: %f", CHUNK_SIZE_METERS);
+        LogToFileListener("Hours for exploration rate to get to zero: %f",
                           EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS);
-        LogToFileListener(fileListener, "Learning rate: %f", LEARNING_RATE);
-        LogToFileListener(fileListener, "Discount rate: %f", DISCOUNT_RATE);
-        LogToFileListener(fileListener, "__END AI ENABLED SECTION__");
+        LogToFileListener("Learning rate: %f", LEARNING_RATE);
+        LogToFileListener("Discount rate: %f", DISCOUNT_RATE);
+        LogToFileListener("__END AI ENABLED SECTION__");
       }
       else
       {
