@@ -120,6 +120,8 @@ private:
 
   bool did_q_learning_last_frame;
   QState* previous_state;
+  bool previous_state_going_wrong_way;
+  ChunkCoordinates previous_state_coords;
   Action previous_action;
 
   bool enabled;

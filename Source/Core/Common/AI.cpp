@@ -65,20 +65,22 @@ void AI::SaveStateToLog()
     std::ostringstream right_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
-      right_way_values_string << std::setprecision(10)
+      right_way_values_string << std::fixed
+                              << std::setprecision(10)
                               << chunk_states->going_right_way_state.ScoreForAction((Action)a)
-                              << ",";
+                              << ";";
     }
 
     std::ostringstream wrong_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
-      wrong_way_values_string << std::setprecision(10)
+      wrong_way_values_string << std::fixed
+                              << std::setprecision(10)
                               << chunk_states->going_wrong_way_state.ScoreForAction((Action)a)
-                              << ",";
+                              << ";";
     }
 
-    LogToFileListener("(%i,%i,%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
+    LogToFileListener("(%i;%i;%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
                       chunk_coord.z, right_way_values_string.str().c_str(),
                       wrong_way_values_string.str().c_str());
   }
@@ -323,6 +325,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     did_q_learning_last_frame = false;
     skip_learning_because_cant_access_info_frame_count++;
 
+    LogToFileListener("> SKIP because no address translation  (ct=%i)",
+                      skip_learning_because_cant_access_info_frame_count);
+
     return {};
   }
 
@@ -332,6 +337,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("Skipping q-learning because pointer to player state is null");
     did_q_learning_last_frame = false;
     skip_learning_because_cant_access_info_frame_count++;
+
+    LogToFileListener("> SKIP because pointer null (ct=%i)",
+                      skip_learning_because_cant_access_info_frame_count);
 
     return {};
   }
@@ -359,6 +367,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     did_q_learning_last_frame = false;
     skip_learning_because_crashing_frame_count++;
 
+    LogToFileListener("> SKIP because crashing (ct=%i)",
+                      skip_learning_because_crashing_frame_count);
+
     cached_inputs = {};
     return {};
   }
@@ -380,6 +391,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
       PanicAlert("Something went wrong during lap number tracking!");
     }
 
+    LogToFileListener("> LAP %i: %i ms", prevLapNumber, lapTimeMillis);
+
     prevLapNumber++;
   }
 
@@ -387,6 +400,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   {
     prevRestoreCountMod256 = player_info_retriever.RestoreCountMod256();
     restore_count++;
+
+    LogToFileListener("> RESTORE (ct=%i)", restore_count);
 
     if (restore_count % 256 != prevRestoreCountMod256)
     {
@@ -398,6 +413,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   ChunkCoordinates userChunk = CalculateUserChunk();
   QState* state = GetCurrentQState(userChunk);
+
+  LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s",
+    player_info_retriever.PlayerVehicleX(),
+    player_info_retriever.PlayerVehicleY(),
+    player_info_retriever.PlayerVehicleZ(),
+    userChunk.x, userChunk.y, userChunk.z,
+    player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
 
   float reward = NAN;
   float max_future_reward = NAN;
@@ -417,15 +439,25 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
     new_score = old_score + (LEARNING_RATE * learned_score);
     previous_state->SetActionScore(previous_action, new_score);
+
+    LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)",
+                      previous_state_going_wrong_way ? "W" : "R",
+                      previous_state_coords.x, previous_state_coords.y, previous_state_coords.z,
+        ACTION_NAMES.at(previous_action).c_str(), old_score, new_score,
+      learning_occured_frame_count);
   }
   else
   {
     generate_inputs_but_dont_learn_frame_count++;
+    LogToFileListener("> NOLEARN (ct=%i)", generate_inputs_but_dont_learn_frame_count);
   }
 
   bool action_chosen_randomly;
   Action action_to_take = ChooseAction(state, &action_chosen_randomly);
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
+
+  LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"),
+                    ACTION_NAMES.at(action_to_take).c_str());
 
   if (debug_info_enabled)
   {
@@ -502,6 +534,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   did_q_learning_last_frame = true;
   previous_state = state;
+  previous_state_going_wrong_way = player_info_retriever.GoingTheWrongWay();
+  previous_state_coords = userChunk;
   previous_action = action_to_take;
 
   cached_inputs = inputs;
