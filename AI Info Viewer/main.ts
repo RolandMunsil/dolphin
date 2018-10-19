@@ -174,11 +174,17 @@ class AIHistoryLog {
     private log: (AIFrame | AISkips)[];
     private deathIndices: number[];
     public laps: Lap[];
+
+    private qTableSoFar: QTable;
+    private chunkSize: number;
     
-    constructor() {
+    constructor(chunkSize: number) {
         this.log = [];
         this.deathIndices = [];
         this.laps = [];
+
+        this.qTableSoFar = new QTable();
+        this.chunkSize = chunkSize;
     }
 
     public get topLogIndex() : number { return this.log.length - 1; }
@@ -189,48 +195,46 @@ class AIHistoryLog {
     }
 
     public addLogEntry(entry: AIFrame | AISkips) {
+        this.applyLogEntryToQTable(entry, this.qTableSoFar);
         this.log.push(entry);
     }
 
-    public GetValueInQTableSoFar(chunkPos: Position, rightWay: boolean, actionIndex: number) {
-        for(let i = this.log.length - 1; i >= 0; i--) {
-            const entry = this.log[i];
-            if(entry instanceof AISkips || entry.qTableUpdate === null) {
-                continue;
-            } else {
-                if(entry.qTableUpdate.updatedStateChunkPosition.equals(chunkPos)
-                && entry.qTableUpdate.updatedStateVehicleGoingRightWay === rightWay
-                && entry.qTableUpdate.actionIndex === actionIndex) {
-                    return entry.qTableUpdate.newValue;
-                }
+    public getValueInQTableSoFar(chunkPos: Position, rightWay: boolean, actionIndex: number) {
+        return this.qTableSoFar.getChunk(chunkPos).getValue(rightWay, actionIndex);
+    }
+
+    public constructQTableAsOfNow() : QTable {
+        return this.constructQTableAtHistoryStep(this.topLogIndex);
+    }
+
+    public constructQTableAtHistoryStep(step: number) : QTable {
+        if(step === this.topLogIndex) {
+            return this.qTableSoFar;
+        } else {       
+            const qTable = new QTable();
+            for(let i = 0; i <= step; i++) {
+                this.applyLogEntryToQTable(this.log[i], qTable);
             }
+            return qTable;
         }
-        return 0;
     }
 
-    public ConstructQTableAsOfNow() : QTable {
-        return this.ConstructQTableAtHistoryStep(this.topLogIndex);
-    }
-
-    public ConstructQTableAtHistoryStep(step: number) : QTable {        
-        const qTable = new QTable();
-
-        for(let i = 0; i <= step; i++) {
-            const entry = this.log[i];
-            if(entry instanceof AISkips || entry.qTableUpdate === null) {
-                continue;
-            } else {
+    private applyLogEntryToQTable(entry: AIFrame | AISkips, qTable: QTable) {
+        if (entry instanceof AIFrame) {
+            if(entry.qTableUpdate !== null) {
                 const tableUpdate = entry.qTableUpdate;
                 const chunk = qTable.getChunk(tableUpdate.updatedStateChunkPosition);
-                chunk.setValue(tableUpdate.updatedStateVehicleGoingRightWay,
-                    tableUpdate.actionIndex, tableUpdate.newValue);
+                chunk.setValue(tableUpdate.updatedStateVehicleGoingRightWay, tableUpdate.actionIndex, tableUpdate.newValue);
             }
-        }
 
-        return qTable;
+            // The C++ code creates a chunk even if it just reads the user's position,
+            // so in any cases where a chunk was read but never updated we need to add
+            // extra chunks. 
+            qTable.makeEmptyChunkIfOneDoesntExist(chunkContainingPosition(entry.vehiclePos, this.chunkSize));
+        }
     }
 
-    public ConstructUserPath() : Position[] {
+    public constructUserPath() : Position[] {
         const positions = [];
         for(const entry of this.log) {
             if(entry instanceof AIFrame) {
@@ -283,19 +287,19 @@ class QTable {
         const y = pos.y;
         const z = pos.z;
 
-        if(this.chunks[x] === undefined) {
+        if(!(x in this.chunks)) {
             return false;
         }
-        if(this.chunks[x][y] === undefined) {
+        if(!(y in this.chunks[x])) {
             return false;
         }
-        if(this.chunks[x][y][z] === undefined) {
+        if(!(z in this.chunks[x][y])) {
             return false;
         }
         return true;
     }
 
-    public makeEmptyChunk(pos: Position) {
+    public makeEmptyChunkIfOneDoesntExist(pos: Position) {
         this.getChunk(pos);
     }
 
@@ -304,13 +308,13 @@ class QTable {
         const y = pos.y;
         const z = pos.z;
 
-        if(this.chunks[x] === undefined) {
+        if(!(x in this.chunks)) {
             this.chunks[x] = [];
         }
-        if(this.chunks[x][y] === undefined) {
+        if(!(y in this.chunks[x])) {
             this.chunks[x][y] = [];
         }
-        if(this.chunks[x][y][z] === undefined) {
+        if(!(z in this.chunks[x][y])) {
             this._chunkCount++;
             this.chunks[x][y][z] = new ChunkStates();
         }
@@ -327,8 +331,6 @@ class SessionInfo {
 
 class LogInterpreter {
 
-    private performExtensiveChecks: boolean = true;
-
     private logLines: string[];
     private currentLineIndex: number;
 
@@ -338,10 +340,6 @@ class LogInterpreter {
     private totalNoLearn = 0;
 
     constructor(logText: string) {
-        if(!this.performExtensiveChecks) {
-            alert("WARNING: extensive checks not being performed!");
-        }
-
         this.logLines = logText.split('\n');
         this.currentLineIndex = 0;
     }
@@ -349,7 +347,7 @@ class LogInterpreter {
     private get currentLine() : string { return this.logLines[this.currentLineIndex]; }
 
     private moveToNextLine() {
-        if(this.currentLineIndex % 1000 === 0) {
+        if(this.currentLineIndex % 100000 === 0) {
             console.log(`${this.currentLineIndex} lines read`);
         }
         this.currentLineIndex++; 
@@ -359,13 +357,15 @@ class LogInterpreter {
     private get reachedEndOfLog() : boolean { return this.currentLineIndex >= (this.logLines.length - 1); }
     
     public interpretLog() {
-        const historyLog = new AIHistoryLog();
+        const millisStart = Date.now();
 
         const sessionInfo = this.readLogHeader();
 
+        const historyLog = new AIHistoryLog(sessionInfo.chunkSize);
+
         while(!this.reachedEndOfLog) {
             if(!this.currentLine.startsWith('>')) {
-                this.readState(sessionInfo, historyLog);
+                this.readState(historyLog);
             }
 
             const lineType = this.currentLine.split(' ')[1];
@@ -396,7 +396,8 @@ class LogInterpreter {
                     alertError("Unexpected line type!");
             }
         }
-        console.log("Done");
+        const millisEnd = Date.now();
+        console.log(`Read ~${this.currentLineIndex} lines in ${(millisEnd-millisStart)/1000.0}seconds`);
     }
 
     private readLogHeader() : SessionInfo {
@@ -501,13 +502,11 @@ class LogInterpreter {
         qTableUpdate.actionIndex = actionStringToAction(getFirstCaptureGroup(/A\[(.*?)\]/, learnLine));
         const newQTableVal = parseFloat(getFirstCaptureGroup(/n=(.*?) /, learnLine));
 
-        if(this.performExtensiveChecks) {
-            const oldQTableVal = parseFloat(getFirstCaptureGroup(/o=(.*?) /, learnLine));
-            const calculatedOldTableVal = historyLog.GetValueInQTableSoFar(qTableUpdate.updatedStateChunkPosition,
-                qTableUpdate.updatedStateVehicleGoingRightWay, qTableUpdate.actionIndex);
+        const oldQTableVal = parseFloat(getFirstCaptureGroup(/o=(.*?) /, learnLine));
+        const calculatedOldTableVal = historyLog.getValueInQTableSoFar(qTableUpdate.updatedStateChunkPosition,
+            qTableUpdate.updatedStateVehicleGoingRightWay, qTableUpdate.actionIndex);
 
-            assert(oldQTableVal === calculatedOldTableVal, "Error in Q table update logic!");
-        }
+        assert(oldQTableVal === calculatedOldTableVal, "Error in Q table update logic!");
 
         qTableUpdate.newValue = newQTableVal;
         aiFrame.qTableUpdate = qTableUpdate;
@@ -515,35 +514,14 @@ class LogInterpreter {
         this.moveToNextLine();
     }
 
-    private readState(sessionInfo: SessionInfo, historyLog: AIHistoryLog) {
-        if(!this.performExtensiveChecks) {
-            while(!this.currentLine.includes("END STATE")) {
-                this.moveToNextLine();
-            }
-            this.moveToNextLine();
-            return;
-        }
-
+    private readState(historyLog: AIHistoryLog) {
         assert(this.currentLine.includes("BEGIN STATE"), "Unexpected start of state!");
         this.moveToNextLine();
 
         assert(this.currentLine.includes("SUMMARY INFO"), "Unexpected start of state!");
         this.moveToNextLine();
 
-        const qTableSoFar = historyLog.ConstructQTableAsOfNow();
-
-        // The C++ code creates a chunk even if it just reads the user's position,
-        // so in any cases where a chunk was read but never updated we need to add
-        // extra chunks. We don't put this in the ConstructQTableAsOfNow method because
-        // it would be tricky and doesn't actually affect the behavior at all (since
-        // the chunk will have zeroes for all values)
-        const userPath = historyLog.ConstructUserPath();
-        for(const userPos of userPath) {
-            const chunkPos = chunkContainingPosition(userPos, sessionInfo.chunkSize);
-            if(!qTableSoFar.chunkHasValues(chunkPos)) {
-                qTableSoFar.makeEmptyChunk(chunkPos);
-            }
-        }
+        const qTableSoFar = historyLog.constructQTableAsOfNow();
 
         this.expectIncludesStringAndValueEquals("total learning", this.totalLearn);
         this.expectIncludesStringAndValueEquals("can't access info", this.totalOtherSkips);
