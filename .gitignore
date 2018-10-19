@@ -34,3 +34,11 @@ CMakeLists.txt.user
 *.kdev4
 # Ignore IDEA/Clion files/dirs
 /.idea/
+
+# For AI viewer
+AI Info Viewer/*.js
+AI Info Viewer/*.js.map
+AI Info Viewer/lib/
+AI Info Viewer/*.log
+AI Info Viewer/.vscode
+
