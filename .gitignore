@@ -38,7 +38,8 @@ CMakeLists.txt.user
 # For AI viewer
 AI Info Viewer/*.js
 AI Info Viewer/*.js.map
-AI Info Viewer/lib/
+AI Info Viewer/extralibs/
+AI Info Viewer/node_modules/
 AI Info Viewer/*.log
 AI Info Viewer/.vscode
 

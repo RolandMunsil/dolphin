@@ -398,6 +398,8 @@ class LogInterpreter {
         }
         const millisEnd = Date.now();
         console.log(`Read ~${this.currentLineIndex} lines in ${(millisEnd-millisStart)/1000.0}seconds`);
+        console.log('Laps:');
+        console.log(historyLog.laps.map(l=>l.timeMillis).join(";"));
     }
 
     private readLogHeader() : SessionInfo {
