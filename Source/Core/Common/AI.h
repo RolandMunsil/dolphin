@@ -51,7 +51,6 @@ struct PlayerInfoRetriever
 
   float PlayerSpeed() { return PowerPC::HostRead_F32(vehicle_info_ptr + 0x17C); }
 
-  u32 CurrentFrame() { return PowerPC::HostRead_U32(vehicle_info_ptr + 0x47C); }
   u32 CrashToRestoreFrameCount() { return PowerPC::HostRead_U32(vehicle_info_ptr + 0x194); }
   u16 DuringRestoreFrameCount() { return PowerPC::HostRead_U16(vehicle_info_ptr + 0x214); }
 
@@ -65,6 +64,8 @@ struct PlayerInfoRetriever
   u8 PreviousLapTimeSecs() { return PowerPC::HostRead_U8(track_relationship_info_ptr + 0x6CC + 0x9); }
   u16 PreviousLapTimeMillis() { return PowerPC::HostRead_U16(track_relationship_info_ptr + 0x6CC + 0xA); }
 
+  u32 TotalFrames() { return PowerPC::HostRead_U32(track_relationship_info_ptr + 0x744); }
+
 private:
   u32 vehicle_info_ptr;
   u32 track_relationship_info_ptr;
@@ -73,14 +74,14 @@ private:
 class AI
 {
   const size_t INITIAL_MAP_BUCKET_COUNT = 10000;
-  const u32 SECONDS_BETWEEN_STATE_SAVES = 60;
+  const u32 SECONDS_BETWEEN_STATE_SAVES = 60 * 10;
 
   const float CHUNK_SIZE_METERS = 16;
 
   // Exploration rate controls how often it will just pick a random value (instead of picking the
   // best value)
   // exploration rate decreases linearly over the course of 4 hours
-  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS = 4;
+  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS = 5;
   float CalculateExplorationRate()
   {
     float timeToZeroInFrames = 60 * 60 * 60 * EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS;
@@ -131,12 +132,14 @@ private:
   GCPadStatus cached_inputs;
 
   u32 learning_occured_frame_count;
-  u32 skip_learning_because_cant_access_info_frame_count;
+  u32 skip_learning_because_cant_access_info_frames_lost;
   u32 skip_learning_because_crashing_frame_count;
   u32 generate_inputs_but_dont_learn_frame_count;
 
   u32 restore_count;
 
+  bool addressTranslationDisabledLastInputRequest;
+  u32 frameCountBeforeAddressTranslationDisabled;
 
   bool debug_info_enabled;
   bool debug_info_enabled_button_pressed_previous;

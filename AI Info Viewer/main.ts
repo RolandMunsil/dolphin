@@ -9,7 +9,7 @@ function alertError(str: string) {
 
 function assert(condition: boolean, errorString: string) {
     if(!condition) {
-        alert(errorString);
+        alertError(errorString);
     }
 }
 
@@ -150,13 +150,11 @@ class AIFrame {
     public bestActionTaken!: boolean;
 }
 
-class AISkips {
-    public skipBecauseCrash: boolean;
-    public skipCount: number;
+class AIRestoreFrames {
+    public frameCount: number;
 
-    constructor(skipBecauseCrash: boolean) {
-        this.skipBecauseCrash = skipBecauseCrash;
-        this.skipCount = 0;
+    constructor() {
+        this.frameCount = 0;
     }
 }
 
@@ -171,8 +169,7 @@ class Lap {
 }
 
 class AIHistoryLog {
-    private log: (AIFrame | AISkips)[];
-    private deathIndices: number[];
+    private log: (AIFrame | AIRestoreFrames)[];
     public laps: Lap[];
 
     private qTableSoFar: QTable;
@@ -180,7 +177,6 @@ class AIHistoryLog {
     
     constructor(chunkSize: number) {
         this.log = [];
-        this.deathIndices = [];
         this.laps = [];
 
         this.qTableSoFar = new QTable();
@@ -188,15 +184,43 @@ class AIHistoryLog {
     }
 
     public get topLogIndex() : number { return this.log.length - 1; }
-    public get deathCount() : number { return this.deathIndices.length; }
+    public get deathCount() : number { return this.log.filter(e=>e instanceof AIRestoreFrames).length; }
 
-    public addDeathFrame(index: number) {
-        this.deathIndices.push(index);
-    }
-
-    public addLogEntry(entry: AIFrame | AISkips) {
+    public addLogEntry(entry: AIFrame | AIRestoreFrames) {
         this.applyLogEntryToQTable(entry, this.qTableSoFar);
         this.log.push(entry);
+    }
+
+    public checkThatPreviousFrameWasRestore() {
+        assert(this.log[this.topLogIndex] instanceof AIRestoreFrames, "Expected to have just had a restore set");
+    }
+
+    public getAllDeathTimes() : number[] {
+        let curFrames = 0;
+        const deathTimes: number[] = [];
+        for(const entry of this.log) {
+            if(entry instanceof AIRestoreFrames) {
+                deathTimes.push(curFrames+1);
+                curFrames += entry.frameCount;
+            } else {
+                curFrames++;
+            }
+        }
+        assert(deathTimes.length === this.deathCount, "Mismatch of deathtimes array size");
+        console.log(`Total sim frames: ${curFrames}`);
+        return deathTimes;
+    }
+
+    public getTotalFramesSoFar() {
+        let curFrames = 0;
+        for(const entry of this.log) {
+            if(entry instanceof AIRestoreFrames) {
+                curFrames += entry.frameCount;
+            } else {
+                curFrames++;
+            }
+        }
+        return curFrames;
     }
 
     public getValueInQTableSoFar(chunkPos: Position, rightWay: boolean, actionIndex: number) {
@@ -219,7 +243,7 @@ class AIHistoryLog {
         }
     }
 
-    private applyLogEntryToQTable(entry: AIFrame | AISkips, qTable: QTable) {
+    private applyLogEntryToQTable(entry: AIFrame | AIRestoreFrames, qTable: QTable) {
         if (entry instanceof AIFrame) {
             if(entry.qTableUpdate !== null) {
                 const tableUpdate = entry.qTableUpdate;
@@ -232,16 +256,6 @@ class AIHistoryLog {
             // extra chunks. 
             qTable.makeEmptyChunkIfOneDoesntExist(chunkContainingPosition(entry.vehiclePos, this.chunkSize));
         }
-    }
-
-    public constructUserPath() : Position[] {
-        const positions = [];
-        for(const entry of this.log) {
-            if(entry instanceof AIFrame) {
-                positions.push(entry.vehiclePos);
-            }
-        }
-        return positions;
     }
 }
 
@@ -334,8 +348,8 @@ class LogInterpreter {
     private logLines: string[];
     private currentLineIndex: number;
 
-    private totalCrashSkips = 0;
-    private totalOtherSkips = 0;
+    private totalCrashFrames = 0;
+    private totalLostFrames = 0;
     private totalLearn = 0;
     private totalNoLearn = 0;
 
@@ -371,11 +385,12 @@ class LogInterpreter {
             const lineType = this.currentLine.split(' ')[1];
             switch(lineType) {
                 case "RESTORE":
-                    historyLog.addDeathFrame(historyLog.topLogIndex);
+                    historyLog.checkThatPreviousFrameWasRestore();
                     this.moveToNextLine();
                     break;
                 case "SKIP":
-                    historyLog.addLogEntry(this.readSkips());
+                    const restoreFrames = this.readRestoreFrames();
+                    historyLog.addLogEntry(restoreFrames);
                     break;
                 case "LAP":
                     const split = this.currentLine.split(' ');
@@ -400,6 +415,8 @@ class LogInterpreter {
         console.log(`Read ~${this.currentLineIndex} lines in ${(millisEnd-millisStart)/1000.0}seconds`);
         console.log('Laps:');
         console.log(historyLog.laps.map(l=>l.timeMillis).join(";"));
+        console.log('Death times:');
+        console.log(historyLog.getAllDeathTimes().join(";"));
     }
 
     private readLogHeader() : SessionInfo {
@@ -430,26 +447,16 @@ class LogInterpreter {
         return info;
     }
 
-    private readSkips() : AISkips {
-        const skips = new AISkips(this.currentLine.includes("crash"));
+    private readRestoreFrames() : AIRestoreFrames {
+        const restoreFrames = new AIRestoreFrames();
 
         while(this.currentLine.startsWith("> SKIP")) {
-            if(skips.skipBecauseCrash !== this.currentLine.includes("crash")) {
-                break;
-            }
-            skips.skipCount++;
-
-            if(skips.skipBecauseCrash) {
-                this.totalCrashSkips++;
-                this.expectCountsToEqual(this.totalCrashSkips, this.currentLine);
-            } else {
-                this.totalOtherSkips++;
-                this.expectCountsToEqual(this.totalOtherSkips, this.currentLine);
-            }
-
+            restoreFrames.frameCount++;
+            this.totalCrashFrames++;
+            this.expectCountsToEqual(this.totalCrashFrames, this.currentLine);
             this.moveToNextLine();
         }
-        return skips;
+        return restoreFrames;
     }
 
     private readLocLearnActTriplet(sessionInfo : SessionInfo, historyLog: AIHistoryLog) : AIFrame {
@@ -526,9 +533,10 @@ class LogInterpreter {
         const qTableSoFar = historyLog.constructQTableAsOfNow();
 
         this.expectIncludesStringAndValueEquals("total learning", this.totalLearn);
-        this.expectIncludesStringAndValueEquals("can't access info", this.totalOtherSkips);
-        this.expectIncludesStringAndValueEquals("death", this.totalCrashSkips);
+        this.expectIncludesStringAndValueEquals("lost", this.totalLostFrames);
+        this.expectIncludesStringAndValueEquals("death", this.totalCrashFrames);
         this.expectIncludesStringAndValueEquals("don't learn", this.totalNoLearn);
+        this.expectIncludesStringAndValueEquals("total", historyLog.getTotalFramesSoFar());
         this.expectIncludesStringAndValueEquals("Restore", historyLog.deathCount);
         this.expectIncludesStringAndValueEquals("Chunk", qTableSoFar.chunkCount);
         this.expectIncludesStringAndValueEquals("State", qTableSoFar.chunkCount * 2);

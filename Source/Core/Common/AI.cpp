@@ -33,7 +33,7 @@ void LogToFileListener(const char* str, Args... args)
   std::ostringstream oss;
   oss << str << std::endl;
   logFileListener->Log(LogTypes::LOG_LEVELS::LINFO,
-                    StringFromFormat(oss.str().c_str(), args...).c_str());
+                       StringFromFormat(oss.str().c_str(), args...).c_str());
 }
 
 void AI::SaveStateToLog()
@@ -41,12 +41,13 @@ void AI::SaveStateToLog()
   LogToFileListener("===================== BEGIN STATE =====================");
   LogToFileListener("___SUMMARY INFO___:");
   LogToFileListener("Frame Ct total learning: %i", learning_occured_frame_count);
-  LogToFileListener("Frame Ct skip because can't access info: %i",
-                    skip_learning_because_cant_access_info_frame_count);
+  LogToFileListener("Frame Ct lost because can't access info: %i",
+                    skip_learning_because_cant_access_info_frames_lost);
   LogToFileListener("Frame Ct skip learning because death: %i",
                     skip_learning_because_crashing_frame_count);
   LogToFileListener("Frame Ct gen inputs but don't learn: %i",
                     generate_inputs_but_dont_learn_frame_count);
+  LogToFileListener("Frame Ct total: %i", player_info_retriever.TotalFrames());
   LogToFileListener("Restore count: %i", restore_count);
   LogToFileListener("Chunk count: %i", chunk_to_states_map.size());
   LogToFileListener("State count: %i", chunk_to_states_map.size() * 2);
@@ -65,8 +66,7 @@ void AI::SaveStateToLog()
     std::ostringstream right_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
-      right_way_values_string << std::fixed
-                              << std::setprecision(10)
+      right_way_values_string << std::fixed << std::setprecision(10)
                               << chunk_states->going_right_way_state.ScoreForAction((Action)a)
                               << ";";
     }
@@ -74,15 +74,13 @@ void AI::SaveStateToLog()
     std::ostringstream wrong_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
-      wrong_way_values_string << std::fixed
-                              << std::setprecision(10)
+      wrong_way_values_string << std::fixed << std::setprecision(10)
                               << chunk_states->going_wrong_way_state.ScoreForAction((Action)a)
                               << ";";
     }
 
-    LogToFileListener("(%i;%i;%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y,
-                      chunk_coord.z, right_way_values_string.str().c_str(),
-                      wrong_way_values_string.str().c_str());
+    LogToFileListener("(%i;%i;%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y, chunk_coord.z,
+                      right_way_values_string.str().c_str(), wrong_way_values_string.str().c_str());
   }
   LogToFileListener("====================== END STATE ======================");
 }
@@ -101,10 +99,13 @@ AI::AI()
       INITIAL_MAP_BUCKET_COUNT);
 
   learning_occured_frame_count = 0;
-  skip_learning_because_cant_access_info_frame_count = 0;
+  skip_learning_because_cant_access_info_frames_lost = 0;
   skip_learning_because_crashing_frame_count = 0;
   generate_inputs_but_dont_learn_frame_count = 0;
   debug_info_enabled = true;
+
+  addressTranslationDisabledLastInputRequest = false;
+  frameCountBeforeAddressTranslationDisabled = -1000;
 
   restore_count = 0;
   prevRestoreCountMod256 = 0;
@@ -321,39 +322,59 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   if (!MSR.DR)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Skipping q-learning because address translation is disabled");
-    did_q_learning_last_frame = false;
-    skip_learning_because_cant_access_info_frame_count++;
+    AILog("Address translation disabled, ignoring input request.");
 
-    LogToFileListener("> SKIP because no address translation  (ct=%i)",
-                      skip_learning_because_cant_access_info_frame_count);
+    if (addressTranslationDisabledLastInputRequest == false)
+    {
+      addressTranslationDisabledLastInputRequest = true;
+      frameCountBeforeAddressTranslationDisabled = frame_at_last_input_request;
+    }
 
     return {};
   }
 
   if (!player_info_retriever.UpdateInfo())
   {
-    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Skipping q-learning because pointer to player state is null");
-    did_q_learning_last_frame = false;
-    skip_learning_because_cant_access_info_frame_count++;
-
-    LogToFileListener("> SKIP because pointer null (ct=%i)",
-                      skip_learning_because_cant_access_info_frame_count);
-
+    PanicAlert("Pointer to player state is null!");
     return {};
   }
 
-  u32 frame = player_info_retriever.CurrentFrame();
-  if (frame == frame_at_last_input_request)
+  u32 thisFrame = player_info_retriever.TotalFrames();
+  if (addressTranslationDisabledLastInputRequest)
   {
-    // AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    // AILog("Duplicate request for frame, returning cached input.");
+    if (thisFrame > frame_at_last_input_request + 1)
+    {
+      u32 frameDiff = (thisFrame - frameCountBeforeAddressTranslationDisabled) - 1;
+      skip_learning_because_cant_access_info_frames_lost += frameDiff;
+      AILog("Frames lost: %i", frameDiff);
+      did_q_learning_last_frame = false;
+
+      LogToFileListener("> FRAMESLOST %i (ct=%i)", frameDiff,
+                        skip_learning_because_cant_access_info_frames_lost);
+    }
+    else
+    {
+      AILog("No frames lost %i", thisFrame - frameCountBeforeAddressTranslationDisabled);
+    }
+    addressTranslationDisabledLastInputRequest = false;
+  }
+
+  if (thisFrame == 0)
+  {
+    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    AILog("Ignoring input request because race hasn't started");
+    return {};
+  }
+
+  if (thisFrame == frame_at_last_input_request)
+  {
+    //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    //AILog("Duplicate request for frame, returning cached input.");
     return cached_inputs;
   }
   else
   {
-    frame_at_last_input_request = frame;
+    frame_at_last_input_request = thisFrame;
   }
 
   if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
@@ -409,17 +430,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     }
   }
 
-  // TODO: record lap times
-
   ChunkCoordinates userChunk = CalculateUserChunk();
   QState* state = GetCurrentQState(userChunk);
 
-  LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s",
-    player_info_retriever.PlayerVehicleX(),
-    player_info_retriever.PlayerVehicleY(),
-    player_info_retriever.PlayerVehicleZ(),
-    userChunk.x, userChunk.y, userChunk.z,
-    player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
+  LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s", player_info_retriever.PlayerVehicleX(),
+                    player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ(),
+                    userChunk.x, userChunk.y, userChunk.z,
+                    player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
 
   float reward = NAN;
   float max_future_reward = NAN;
@@ -441,10 +458,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     previous_state->SetActionScore(previous_action, new_score);
 
     LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)",
-                      previous_state_going_wrong_way ? "W" : "R",
-                      previous_state_coords.x, previous_state_coords.y, previous_state_coords.z,
-        ACTION_NAMES.at(previous_action).c_str(), old_score, new_score,
-      learning_occured_frame_count);
+                      previous_state_going_wrong_way ? "W" : "R", previous_state_coords.x,
+                      previous_state_coords.y, previous_state_coords.z,
+                      ACTION_NAMES.at(previous_action).c_str(), old_score, new_score,
+                      learning_occured_frame_count);
   }
   else
   {
@@ -464,9 +481,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     std::chrono::time_point calc_end_time = std::chrono::system_clock::now();
 
     AILog("============================================================");
+    AILog("Frame Ct:                                %i", player_info_retriever.TotalFrames());
     AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
-    AILog("Frame Ct skip because can't access info: %i",
-          skip_learning_because_cant_access_info_frame_count);
+    AILog("Frames lost because can't access info:   %i",
+          skip_learning_because_cant_access_info_frames_lost);
     AILog("Frame Ct skip learning because death:    %i",
           skip_learning_because_crashing_frame_count);
     AILog("Frame Ct gen inputs but don't learn:     %i",
@@ -524,6 +542,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
                .count()
         << " microseconds";
     AILog(oss.str().c_str());
+  }
+
+  if (thisFrame != (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
+                    skip_learning_because_cant_access_info_frames_lost +
+                    generate_inputs_but_dont_learn_frame_count))
+  {
+    PanicAlert("Frame counts have gotten off!!");
   }
 
   if (learning_occured_frame_count % (SECONDS_BETWEEN_STATE_SAVES * 60) == 0)
