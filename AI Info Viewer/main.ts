@@ -1,6 +1,6 @@
 let scene: THREE.Scene;
 let logInterpreter: LogInterpreter;
-let logFile = "dolphin 4.log";
+let logFile = "dolphin.log";
 
 function alertError(str: string) {
     debugger;
@@ -63,7 +63,6 @@ function toBoolean(str: string, trueString : string, falseString : string) : boo
 }
 
 beginLoadingLog();
-//createScene();
 
 function beginLoadingLog() {
     fetch(logFile)
@@ -288,13 +287,16 @@ class ChunkStates {
 class QTable {
     private chunks: ChunkStates[][][];
     private _chunkCount: number;
+    private allChunkCoords: Position[];
 
     constructor() {
         this.chunks = [];
         this._chunkCount = 0;
+        this.allChunkCoords = [];
     }
 
     public get chunkCount() { return this._chunkCount; }
+    public get chunkCoords() { return this.allChunkCoords; }
 
     public chunkHasValues(pos: Position) : boolean {
         const x = pos.x;
@@ -331,6 +333,7 @@ class QTable {
         if(!(z in this.chunks[x][y])) {
             this._chunkCount++;
             this.chunks[x][y][z] = new ChunkStates();
+            this.allChunkCoords.push(new Position(x,y,z));
         }
         return this.chunks[x][y][z];
     }
@@ -417,6 +420,19 @@ class LogInterpreter {
         console.log(historyLog.laps.map(l=>l.timeMillis).join(";"));
         console.log('Death times:');
         console.log(historyLog.getAllDeathTimes().join(";"));
+
+        const qTable = historyLog.constructQTableAsOfNow();
+
+        createScene();
+        const geometry = new THREE.BoxGeometry(1, 1, 1);      
+        for(const coord of qTable.chunkCoords) {
+            const val = qTable.getChunk(coord).getValue(true, Action.FORWARD);
+            const color = new THREE.Color(val/2000, val/2000, val/2000);
+            const material = new THREE.MeshBasicMaterial({ color: color });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.set(coord.x, coord.y, coord.z);
+            scene.add( cube );
+        }
     }
 
     private readLogHeader() : SessionInfo {
@@ -595,25 +611,26 @@ class LogInterpreter {
     }
 }
 
-// function createScene() {
-//     scene = new THREE.Scene();
-//     let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-//     let controls = new THREE.OrbitControls( camera );
+function createScene() {
+    scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const controls = new THREE.OrbitControls( camera );
 
-//     let renderer = new THREE.WebGLRenderer();
-//     renderer.setPixelRatio(window.devicePixelRatio);
-//     renderer.setSize(window.innerWidth, window.innerHeight);
-//     document.body.appendChild(renderer.domElement);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setClearColor('skyblue');
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-//     camera.position.z = 100;
-//     controls.update();
+    camera.position.z = 100;
+    controls.update();
 
-//     function animate() {
-//         requestAnimationFrame( animate );
-//         controls.update();
-//     //     cube.rotation.x += 0.01;
-//     //     cube.rotation.y += 0.01;
-//         renderer.render( scene, camera );
-//     }
-//     animate();
-// }
+    function animate() {
+        requestAnimationFrame( animate );
+        controls.update();
+    //     cube.rotation.x += 0.01;
+    //     cube.rotation.y += 0.01;
+        renderer.render( scene, camera );
+    }
+    animate();
+}
