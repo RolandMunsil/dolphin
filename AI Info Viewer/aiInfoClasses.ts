@@ -279,3 +279,13 @@ class SessionInfo {
     public learningRate: number = -1;
     public discountRate: number = -1;
 }
+
+class AISession {
+    public sessionInfo: SessionInfo;
+    public history: AIHistoryLog;
+
+    constructor(sessionInfo: SessionInfo, history: AIHistoryLog) {
+        this.sessionInfo = sessionInfo;
+        this.history = history;
+    }
+}

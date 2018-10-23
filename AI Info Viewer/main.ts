@@ -1,19 +1,40 @@
-let scene: THREE.Scene;
 let logInterpreter: LogInterpreter;
 let logFile = "dolphin.log";
 
-beginLoadingLog();
+startLogParsing();
 
-function beginLoadingLog() {
+function startLogParsing() {
     fetch(logFile)
-    .then(response => response.text()).then(function(text) {
+    .then(response => response.text())
+    .then(function(text) {
         logInterpreter = new LogInterpreter(text);
-        logInterpreter.interpretLog();
+        const info = logInterpreter.interpretLog();
+        displayInfo(info);
     });
 }
 
+function displayInfo(session: AISession) {
+    console.log('Laps:');
+    console.log(session.history.laps.map(l=>l.timeMillis).join(";"));
+    console.log('Death times:');
+    console.log(session.history.getAllDeathTimes().join(";"));
+
+    const qTable = session.history.constructQTableAsOfNow();
+
+    const scene = createScene();
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    for(const coord of qTable.chunkCoords) {
+        const val = qTable.getChunk(coord).getValue(true, Action.FORWARD);
+        const color = new THREE.Color(val/2000, val/2000, val/2000);
+        const material = new THREE.MeshBasicMaterial({ color: color });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.position.set(coord.x, coord.y, coord.z);
+        scene.add( cube );
+    }
+}
+
 function createScene() {
-    scene = new THREE.Scene();
+    const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const controls = new THREE.OrbitControls( camera );
 
@@ -29,9 +50,8 @@ function createScene() {
     function animate() {
         requestAnimationFrame( animate );
         controls.update();
-    //     cube.rotation.x += 0.01;
-    //     cube.rotation.y += 0.01;
         renderer.render( scene, camera );
     }
     animate();
+    return scene;
 }

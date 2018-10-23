@@ -61,10 +61,12 @@ class LogInterpreter {
         this.currentLineIndex++; 
     }
 
+    public get percentComplete() : number { return this.currentLineIndex / this.logLines.length; }
+
     // We need the -1 so that the trailing newline doesn't count as a line
     private get reachedEndOfLog() : boolean { return this.currentLineIndex >= (this.logLines.length - 1); }
     
-    public interpretLog() {
+    public interpretLog() : AISession {
         const millisStart = Date.now();
 
         const sessionInfo = this.readLogHeader();
@@ -107,23 +109,7 @@ class LogInterpreter {
         }
         const millisEnd = Date.now();
         console.log(`Read ~${this.currentLineIndex} lines in ${(millisEnd-millisStart)/1000.0}seconds`);
-        console.log('Laps:');
-        console.log(historyLog.laps.map(l=>l.timeMillis).join(";"));
-        console.log('Death times:');
-        console.log(historyLog.getAllDeathTimes().join(";"));
-
-        const qTable = historyLog.constructQTableAsOfNow();
-
-        createScene();
-        const geometry = new THREE.BoxGeometry(1, 1, 1);      
-        for(const coord of qTable.chunkCoords) {
-            const val = qTable.getChunk(coord).getValue(true, Action.FORWARD);
-            const color = new THREE.Color(val/2000, val/2000, val/2000);
-            const material = new THREE.MeshBasicMaterial({ color: color });
-            const cube = new THREE.Mesh(geometry, material);
-            cube.position.set(coord.x, coord.y, coord.z);
-            scene.add( cube );
-        }
+        return new AISession(sessionInfo, historyLog);
     }
 
     private readLogHeader() : SessionInfo {
