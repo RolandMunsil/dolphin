@@ -48,7 +48,7 @@ class LogParser {
                     break;
                 case "LAP":
                     const split = this.currentLine.split(' ');
-                    historyLog.laps.push(new Lap(historyLog.topLogIndex, parseInt(split[3])));
+                    historyLog.laps.push(new Lap(historyLog.getTotalFramesSoFar(), parseInt(split[3])));
                     const expectedLapNum = parseInt(split[2]);
                     assert(expectedLapNum === historyLog.laps.length-1, "Lap number mismatch.");
                     this.moveToNextLine();

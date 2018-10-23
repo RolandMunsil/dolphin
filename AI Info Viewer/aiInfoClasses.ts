@@ -47,7 +47,6 @@ enum Action {
     
     ACTION_COUNT
 }
-
 function actionStringToAction(actionString : string) : Action {
     switch(actionString) {
         case "Sharp turn left": return Action.SHARP_TURN_LEFT;
@@ -101,6 +100,33 @@ class Lap {
     }
 }
 
+class PathHistorySegmentDeath {
+    public restoreFrames: number;
+
+    constructor(restoreFrames: number) {
+        this.restoreFrames = restoreFrames;
+    }
+ }
+
+class PathSegment {
+     public path: (Position | PathHistorySegmentDeath)[];
+
+     public get totalFrames() : number {
+         let sum = 0;
+         for(const elem of this.path) {
+             if(elem instanceof Position) {
+                sum++;
+             } else {
+                 sum += elem.restoreFrames;
+             }
+         }
+         return sum;     }
+
+     constructor() {
+         this.path = [];
+     }
+}
+
 class AIHistoryLog {
     private log: (AIFrame | AIRestoreFrames)[];
     public laps: Lap[];
@@ -116,7 +142,6 @@ class AIHistoryLog {
         this.chunkSize = chunkSize;
     }
 
-    public get topLogIndex() : number { return this.log.length - 1; }
     public get deathCount() : number { return this.log.filter(e=>e instanceof AIRestoreFrames).length; }
 
     public addLogEntry(entry: AIFrame | AIRestoreFrames) {
@@ -129,31 +154,19 @@ class AIHistoryLog {
     }
 
     public getAllDeathTimes() : number[] {
-        let curFrames = 0;
         const deathTimes: number[] = [];
-        for(const entry of this.log) {
+        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames), curFrames: number) {
             if(entry instanceof AIRestoreFrames) {
                 deathTimes.push(curFrames+1);
-                curFrames += entry.frameCount;
-            } else {
-                curFrames++;
             }
-        }
+            return true;
+        });
         assert(deathTimes.length === this.deathCount, "Mismatch of deathtimes array size");
-        console.log(`Total sim frames: ${curFrames}`);
         return deathTimes;
     }
 
     public getTotalFramesSoFar() {
-        let curFrames = 0;
-        for(const entry of this.log) {
-            if(entry instanceof AIRestoreFrames) {
-                curFrames += entry.frameCount;
-            } else {
-                curFrames++;
-            }
-        }
-        return curFrames;
+        return this.iterateThroughLogWithTimes(()=>true);
     }
 
     public getValueInQTableSoFar(chunkPos: Position, rightWay: boolean, actionIndex: number) {
@@ -174,6 +187,53 @@ class AIHistoryLog {
             }
             return qTable;
         }
+    }
+
+    public getPathBetweenTimeStamps(startInclusive: number, endInclusive: number) {
+        const path = new PathSegment();
+        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames), curFrames: number) {
+            if(curFrames > endInclusive) {
+                return false;
+            }
+            
+            if(entry instanceof AIRestoreFrames) {
+                let restoreFrames = entry.frameCount;
+                if(startInclusive > curFrames) {
+                    restoreFrames -= startInclusive - curFrames;
+                }
+                if(endInclusive < (curFrames + entry.frameCount)) {
+                    restoreFrames -= (curFrames + entry.frameCount) - endInclusive;
+                }
+                if(restoreFrames > 0) {
+                    path.path.push(new PathHistorySegmentDeath(restoreFrames));
+                }
+            } else if(curFrames >= startInclusive) {
+                path.path.push(entry.vehiclePos);
+            }
+            return true;
+        });
+
+        assert(path.totalFrames === (endInclusive-startInclusive)+1, "Path size incorrect");
+        return path;
+    }
+
+    private get topLogIndex() : number { return this.log.length - 1; }
+
+    private iterateThroughLogWithTimes(loopFn: (e: (AIFrame | AIRestoreFrames), st: number) => boolean) {
+        let curFrames = 0;
+        for(const entry of this.log) {
+            const continueLoop = loopFn(entry, curFrames);
+            if(!continueLoop) {
+                return curFrames;
+            }
+
+            if(entry instanceof AIRestoreFrames) {
+                curFrames += entry.frameCount;
+            } else {
+                curFrames++;
+            }
+        }
+        return curFrames;
     }
 
     private applyLogEntryToQTable(entry: AIFrame | AIRestoreFrames, qTable: QTable) {
