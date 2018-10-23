@@ -7,7 +7,7 @@ function startLogParsing() {
     .then(response => response.text())
     .then(function(text) {
         const parser = new LogParser(text);
-        const info = parser.interpretLog();
+        const info = parser.parse();
         displayInfo(info);
     });
 }
