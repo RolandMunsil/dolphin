@@ -1,43 +1,4 @@
-// TODO: rename to LogParser
-
-function getFirstCaptureGroup(regex: RegExp, str: string) : string {
-    const regexResult = regex.exec(str);
-    if(regexResult !== null) {
-        return regexResult[1];
-    } else {
-        alertError("No regex results!");
-        return "";
-    }
-}
-
-function extractSemicolonSeparatedNumbers(regex: RegExp, str: string, expectInts: boolean) : number[] {
-    const numStrings = getFirstCaptureGroup(regex, str).trim().split(';');
-
-    // Remove trailing comma if it exists.
-    if(numStrings[numStrings.length-1] === "") {
-        numStrings.pop();
-    }
-
-    if(expectInts) {
-        return numStrings.map(s=>parseInt(s.replace(',','')));
-    } else {
-        return numStrings.map(s=>parseFloat(s.replace(',','')));
-    }
-
-}
-
-function toBoolean(str: string, trueString : string, falseString : string) : boolean {
-    if(str === trueString) {
-        return true;
-    } else if(str === falseString) {
-        return false;
-    } else {
-        alertError("Unexpected string!");
-        return false;
-    }
-}
-
-class LogInterpreter {
+class LogParser {
 
     private logLines: string[];
     private currentLineIndex: number;
@@ -61,16 +22,13 @@ class LogInterpreter {
         this.currentLineIndex++; 
     }
 
-    public get percentComplete() : number { return this.currentLineIndex / this.logLines.length; }
-
     // We need the -1 so that the trailing newline doesn't count as a line
     private get reachedEndOfLog() : boolean { return this.currentLineIndex >= (this.logLines.length - 1); }
     
-    public interpretLog() : AISession {
+    public parse() : AISession {
         const millisStart = Date.now();
 
         const sessionInfo = this.readLogHeader();
-
         const historyLog = new AIHistoryLog(sessionInfo.chunkSize);
 
         while(!this.reachedEndOfLog) {
@@ -171,8 +129,8 @@ class LogInterpreter {
         const actLine = this.currentLine;
         assert(actLine.startsWith("> ACT"), "Expected act line but there wasn't any!");
 
-        aiFrame.actionTaken = actionStringToAction(getFirstCaptureGroup(/\[(.*?)\]/, actLine));
-        aiFrame.bestActionTaken = toBoolean(actLine.split(' ')[2], "BEST", "RAND");
+        aiFrame.actionTaken = actionStringToAction(this.getFirstCaptureGroup(/\[(.*?)\]/, actLine));
+        aiFrame.bestActionTaken = this.toBoolean(actLine.split(' ')[2], "BEST", "RAND");
 
         this.moveToNextLine();
 
@@ -182,9 +140,9 @@ class LogInterpreter {
     private readLocLine(aiFrame: AIFrame, sessionInfo: SessionInfo) {
         const locLine = this.currentLine;
 
-        aiFrame.vehiclePos = Position.fromArray(extractSemicolonSeparatedNumbers(/P\((.*?)\)/, locLine, false));
-        aiFrame.vehicleGoingRightDirection = toBoolean(locLine.split(' ')[4].trim(), "RIGHT", "WRONG");
-        const trueChunkPos = Position.fromArray(extractSemicolonSeparatedNumbers(/C\((.*?)\)/, locLine, true));
+        aiFrame.vehiclePos = Position.fromArray(this.extractSemicolonSeparatedNumbers(/P\((.*?)\)/, locLine, false));
+        aiFrame.vehicleGoingRightDirection = this.toBoolean(locLine.split(' ')[4].trim(), "RIGHT", "WRONG");
+        const trueChunkPos = Position.fromArray(this.extractSemicolonSeparatedNumbers(/C\((.*?)\)/, locLine, true));
         const calculatedChunkPos = chunkContainingPosition(aiFrame.vehiclePos, sessionInfo.chunkSize);
         assert(trueChunkPos.equals(calculatedChunkPos), "Chunk sizes are being calculated incorrectly.");
 
@@ -198,13 +156,13 @@ class LogInterpreter {
         this.expectCountsToEqual(this.totalLearn, learnLine);
         const qTableUpdate = new QTableUpdate();
         qTableUpdate.updatedStateVehicleGoingRightWay =
-            toBoolean(getFirstCaptureGroup(/@(.)/, learnLine), "R", "W");
+            this.toBoolean(this.getFirstCaptureGroup(/@(.)/, learnLine), "R", "W");
         qTableUpdate.updatedStateChunkPosition =
-            Position.fromArray(extractSemicolonSeparatedNumbers(/@.\((.*?)\)/, learnLine, true));
-        qTableUpdate.actionIndex = actionStringToAction(getFirstCaptureGroup(/A\[(.*?)\]/, learnLine));
-        const newQTableVal = parseFloat(getFirstCaptureGroup(/n=(.*?) /, learnLine));
+            Position.fromArray(this.extractSemicolonSeparatedNumbers(/@.\((.*?)\)/, learnLine, true));
+        qTableUpdate.actionIndex = actionStringToAction(this.getFirstCaptureGroup(/A\[(.*?)\]/, learnLine));
+        const newQTableVal = parseFloat(this.getFirstCaptureGroup(/n=(.*?) /, learnLine));
 
-        const oldQTableVal = parseFloat(getFirstCaptureGroup(/o=(.*?) /, learnLine));
+        const oldQTableVal = parseFloat(this.getFirstCaptureGroup(/o=(.*?) /, learnLine));
         const calculatedOldTableVal = historyLog.getValueInQTableSoFar(qTableUpdate.updatedStateChunkPosition,
             qTableUpdate.updatedStateVehicleGoingRightWay, qTableUpdate.actionIndex);
 
@@ -240,7 +198,7 @@ class LogInterpreter {
         if(this.currentLine.search(/[0-9]/) === -1) {
             lapTimes = [];
         } else {
-            lapTimes = extractSemicolonSeparatedNumbers(/: (.*)/, this.currentLine, true);
+            lapTimes = this.extractSemicolonSeparatedNumbers(/: (.*)/, this.currentLine, true);
         }
         assert(lapTimes.length === historyLog.laps.length, "Lap count off!");
 
@@ -253,9 +211,9 @@ class LogInterpreter {
         this.moveToNextLine();
 
         while(!this.currentLine.includes("END STATE")) {
-            const chunkCoord = Position.fromArray(extractSemicolonSeparatedNumbers(/\((.*?)\)/, this.currentLine, true));
-            const rightWayQValues = extractSemicolonSeparatedNumbers(/R{(.*?)}/, this.currentLine, false);
-            const wrongWayQValues = extractSemicolonSeparatedNumbers(/W{(.*?)}/, this.currentLine, false);
+            const chunkCoord = Position.fromArray(this.extractSemicolonSeparatedNumbers(/\((.*?)\)/, this.currentLine, true));
+            const rightWayQValues = this.extractSemicolonSeparatedNumbers(/R{(.*?)}/, this.currentLine, false);
+            const wrongWayQValues = this.extractSemicolonSeparatedNumbers(/W{(.*?)}/, this.currentLine, false);
 
             assert(rightWayQValues.length === wrongWayQValues.length, "Something went wrong reading the q-values.");
             assert(qTableSoFar.chunkHasValues(chunkCoord), "Calculated Q table is missing chunks.");
@@ -274,16 +232,54 @@ class LogInterpreter {
         this.moveToNextLine();
     }
 
+    // UTILITY METHODS
     private expectIncludesStringAndValueEquals(includedStr: string, expectedValue: number) {
         assert(this.currentLine.includes(includedStr), "Expected string not present.");
 
-        const val = parseInt(getFirstCaptureGroup(/: (.*)/, this.currentLine).trim());
+        const val = parseInt(this.getFirstCaptureGroup(/: (.*)/, this.currentLine).trim());
         assert(val === expectedValue, "Incorrect calculated value.");
         this.moveToNextLine();
     }
 
     private expectCountsToEqual(calculatedCt: number, stringContainingCount: string) {
-        const expectedCount = parseInt(getFirstCaptureGroup(/ct=(.*?)\)/, stringContainingCount));
+        const expectedCount = parseInt(this.getFirstCaptureGroup(/ct=(.*?)\)/, stringContainingCount));
         assert(calculatedCt === expectedCount, "Count mismatch.");
+    }
+
+    private getFirstCaptureGroup(regex: RegExp, str: string) : string {
+        const regexResult = regex.exec(str);
+        if(regexResult !== null) {
+            return regexResult[1];
+        } else {
+            alertError("No regex results!");
+            return "";
+        }
+    }
+    
+    private extractSemicolonSeparatedNumbers(regex: RegExp, str: string, expectInts: boolean) : number[] {
+        const numStrings = this.getFirstCaptureGroup(regex, str).trim().split(';');
+    
+        // Remove trailing comma if it exists.
+        if(numStrings[numStrings.length-1] === "") {
+            numStrings.pop();
+        }
+    
+        if(expectInts) {
+            return numStrings.map(s=>parseInt(s.replace(',','')));
+        } else {
+            return numStrings.map(s=>parseFloat(s.replace(',','')));
+        }
+    
+    }
+    
+    private toBoolean(str: string, trueString : string, falseString : string) : boolean {
+        if(str === trueString) {
+            return true;
+        } else if(str === falseString) {
+            return false;
+        } else {
+            alertError("Unexpected string!");
+            return false;
+        }
     }
 }

@@ -1,5 +1,4 @@
-let logInterpreter: LogInterpreter;
-let logFile = "dolphin.log";
+const logFile = "dolphin.log";
 
 startLogParsing();
 
@@ -7,8 +6,8 @@ function startLogParsing() {
     fetch(logFile)
     .then(response => response.text())
     .then(function(text) {
-        logInterpreter = new LogInterpreter(text);
-        const info = logInterpreter.interpretLog();
+        const parser = new LogParser(text);
+        const info = parser.interpretLog();
         displayInfo(info);
     });
 }
@@ -36,6 +35,7 @@ function displayInfo(session: AISession) {
 function createScene() {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 100;
     const controls = new THREE.OrbitControls( camera );
 
     const renderer = new THREE.WebGLRenderer();
@@ -43,9 +43,6 @@ function createScene() {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-
-    camera.position.z = 100;
-    controls.update();
 
     function animate() {
         requestAnimationFrame( animate );
