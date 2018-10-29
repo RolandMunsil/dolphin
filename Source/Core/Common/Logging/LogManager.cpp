@@ -8,6 +8,7 @@
 #include <locale>
 #include <mutex>
 #include <ostream>
+#include <regex>
 #include <string>
 
 #include "Common/CommonPaths.h"
@@ -34,7 +35,9 @@ class FileLogListener : public LogListener
 public:
   FileLogListener(const std::string& filename)
   {
-    File::OpenFStream(m_logfile, filename, std::ios::app);
+    std::string timeStr = std::to_string(time(nullptr));
+    std::string filename_with_timestamp = std::regex_replace(filename, std::regex("\\."), " " + timeStr + ".");
+    File::OpenFStream(m_logfile, filename_with_timestamp, std::ios::app);
     SetEnable(true);
   }
 
