@@ -3,7 +3,7 @@ const logFile = "dolphin.log";
 startLogParsing();
 
 function startLogParsing() {
-    fetch(logFile)
+    fetch("logs/"+logFile)
     .then(response => response.text())
     .then(function(text) {
         const parser = new LogParser(text);
@@ -34,8 +34,7 @@ function displayInfo(session: AISession) {
         cube.position.set(coord.x * chunkSize, coord.y * chunkSize, coord.z * chunkSize);
         scene.add( cube );
     }
-    const firstLapEndTime = session.history.laps[0].endFrame;
-    console.log(session.history.laps[0]);
+    const firstLapEndTime = session.history.laps[20].endFrame;
     const path = session.history.getPathBetweenTimeStamps(0, firstLapEndTime);
 
     const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
