@@ -35,17 +35,18 @@ function clearTextDisplay() {
 function writeToTextDisplay(str: string) {
     textOutput.value += `${str}`;
 }
-function writeLineToTextDisplay(str: string) {
+function writeLineToTextDisplay(str: string = "") {
     textOutput.value += `${str}\r\n`;
 }
 
 function displayInfo(session: AISession) {
     aiSession = session;
 
-    console.log('Laps:');
-    console.log(session.history.laps.map(l=>l.timeMillis).join(";"));
-    console.log('Death times:');
-    console.log(session.history.getAllDeathTimes().join(";"));
+    writeLineToTextDisplay('Laps times (millis):');
+    writeLineToTextDisplay(session.history.laps.map(l=>l.timeMillis).join("\r\n"));
+    writeLineToTextDisplay();
+    writeLineToTextDisplay('Death times:');
+    writeLineToTextDisplay(session.history.getAllDeathTimes().join("\r\n"));
 
     const qTable = session.history.constructQTableAsOfNow();
     const chunkSize = session.sessionInfo.chunkSize;
@@ -136,9 +137,9 @@ function createScene() {
     const raycaster = new THREE.Raycaster();
     function animate() {
         requestAnimationFrame(animate);
-        controls.update();
+        controls.enabled = mousePosNormalized.x <= 1;
 
-        if(click) {
+        if(mousePosNormalized.x <= 1 && click) {
             raycaster.setFromCamera(mousePosNormalized, camera);
             const intersections = raycaster.intersectObjects(scene.children);
             if(intersections.length > 0) {
