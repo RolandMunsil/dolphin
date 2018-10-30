@@ -1,10 +1,17 @@
-const logFile = "dolphin DELETEME.log";
+const logFile = "dolphin.log";
 
 let mouseDown = false;
 let click = false;
 window.addEventListener('mousedown', ()=>{mouseDown = true; click = true;});
 window.addEventListener('mouseup', ()=>{mouseDown = false; click = false;});
 
+let textOutput: HTMLTextAreaElement;
+window.onload = function() { 
+    textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
+    if(textOutput === null || textOutput === undefined) {
+        alertError("Textoutput is null");
+    }
+};
 
 const mousePosNormalized = new THREE.Vector2();
 const meshToChunkPosMap = new Map<THREE.Object3D, AIPosition>();
@@ -20,6 +27,16 @@ function startLogParsing() {
         const info = parser.parse();
         displayInfo(info);
     });
+}
+
+function clearTextDisplay() {
+    textOutput.value = "";
+}
+function writeToTextDisplay(str: string) {
+    textOutput.value += `${str}`;
+}
+function writeLineToTextDisplay(str: string) {
+    textOutput.value += `${str}\r\n`;
 }
 
 function displayInfo(session: AISession) {
@@ -48,15 +65,16 @@ function displayInfo(session: AISession) {
     }
 }
 
-function updateInfoText(textOutput: HTMLTextAreaElement, chunkPos: AIPosition) {
+function updateInfoText(chunkPos: AIPosition) {
     const sesInfo = aiSession.sessionInfo;
-    textOutput.value = `${sesInfo.hoursToNoExploration} hours to exploration=0\r\n`;
-    textOutput.value += `Learn rate: ${sesInfo.learningRate} | Discount rate: ${sesInfo.discountRate}\r\n`;
-    textOutput.value += `Chunk size: ${sesInfo.chunkSize}\r\n`;
-    textOutput.value += "===========================================================\r\n";
+    clearTextDisplay();
+    writeLineToTextDisplay(`${sesInfo.hoursToNoExploration} hours to 0 exploration`);
+    writeLineToTextDisplay(`Learn rate: ${sesInfo.learningRate} | Discount rate: ${sesInfo.discountRate}`);
+    writeLineToTextDisplay(`Chunk size: ${sesInfo.chunkSize}`);
+    writeLineToTextDisplay("===========================================================");
 
     const frames = aiSession.history.getFramesAssociatedWithChunk(chunkPos);
-    textOutput.value += `Selected chunk: (${chunkPos.x}, ${chunkPos.y}, ${chunkPos.z})\r\n`;
+    writeLineToTextDisplay(`Selected chunk: (${chunkPos.x}, ${chunkPos.y}, ${chunkPos.z})`);
 
     let framesStr = "";
     let visitCount = 0;
@@ -64,10 +82,12 @@ function updateInfoText(textOutput: HTMLTextAreaElement, chunkPos: AIPosition) {
 
     let prevFrame: AIFrame | null = null;
     let prevFrameNumber = -1;
+    let expectingQTableUpdate = false;
     for(const [frameInfo, frameNumber] of frames) {
         if(frameInfo.qTableUpdate !== null && frameInfo.qTableUpdate.updatedStateChunkPosition.equals(chunkPos)) {
             // Chunk table was updated
             updateCount++;
+            expectingQTableUpdate = false;
             
             if(prevFrame === null || prevFrameNumber+1 !== frameNumber) {
                 alertError("Unexpected update");
@@ -76,8 +96,12 @@ function updateInfoText(textOutput: HTMLTextAreaElement, chunkPos: AIPosition) {
                 assert(frameInfo.qTableUpdate.actionIndex === prevFrame.actionTaken,"Invalid frame pairing");
                 framesStr += ` -> ${frameInfo.qTableUpdate.newValue}\r\n`;
             }
+        } else if(expectingQTableUpdate) {
+            framesStr += " -> [NO UPDATE]\r\n";
+            expectingQTableUpdate = false;
         }
         if(chunkContainingPosition(frameInfo.vehiclePos, sesInfo.chunkSize).equals(chunkPos)) {
+            expectingQTableUpdate = true;
             visitCount++;
             framesStr += `F${frameNumber}: `;
             framesStr += `${Action[frameInfo.actionTaken]} (rw=${frameInfo.vehicleGoingRightDirection}) (best=${frameInfo.bestActionTaken})`;
@@ -85,9 +109,13 @@ function updateInfoText(textOutput: HTMLTextAreaElement, chunkPos: AIPosition) {
         prevFrame = frameInfo;
         prevFrameNumber = frameNumber;
     }
-    textOutput.value += `Visit/Update: ${visitCount}/${updateCount}\r\n`;
-    textOutput.value += "----------------\r\n";
-    textOutput.value += framesStr;
+    if(expectingQTableUpdate) {
+        framesStr += " -> [NO UPDATE]\r\n";
+    }
+
+    writeLineToTextDisplay(`Visit/Update: ${visitCount}/${updateCount}`);
+    writeLineToTextDisplay("----------------");
+    writeToTextDisplay(framesStr);
 }
 
 function createScene() {
@@ -118,12 +146,7 @@ function createScene() {
                 if(pos === undefined) {
                     alertError("bad");
                 } else {
-                    const textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
-                    if(textOutput === null) {
-                        alertError("bad");
-                    } else {
-                        updateInfoText(textOutput, pos);
-                    }
+                    updateInfoText(pos);
                 }
             }
             click = false;
