@@ -140,9 +140,9 @@ class LogParser {
     private readLocLine(aiFrame: AIFrame, sessionInfo: SessionInfo) {
         const locLine = this.currentLine;
 
-        aiFrame.vehiclePos = Position.fromArray(this.extractSemicolonSeparatedNumbers(/P\((.*?)\)/, locLine, false));
+        aiFrame.vehiclePos = AIPosition.fromArray(this.extractSemicolonSeparatedNumbers(/P\((.*?)\)/, locLine, false));
         aiFrame.vehicleGoingRightDirection = this.toBoolean(locLine.split(' ')[4].trim(), "RIGHT", "WRONG");
-        const trueChunkPos = Position.fromArray(this.extractSemicolonSeparatedNumbers(/C\((.*?)\)/, locLine, true));
+        const trueChunkPos = AIPosition.fromArray(this.extractSemicolonSeparatedNumbers(/C\((.*?)\)/, locLine, true));
         const calculatedChunkPos = chunkContainingPosition(aiFrame.vehiclePos, sessionInfo.chunkSize);
         assert(trueChunkPos.equals(calculatedChunkPos), "Chunk sizes are being calculated incorrectly.");
 
@@ -158,7 +158,7 @@ class LogParser {
         qTableUpdate.updatedStateVehicleGoingRightWay =
             this.toBoolean(this.getFirstCaptureGroup(/@(.)/, learnLine), "R", "W");
         qTableUpdate.updatedStateChunkPosition =
-            Position.fromArray(this.extractSemicolonSeparatedNumbers(/@.\((.*?)\)/, learnLine, true));
+            AIPosition.fromArray(this.extractSemicolonSeparatedNumbers(/@.\((.*?)\)/, learnLine, true));
         qTableUpdate.actionIndex = actionStringToAction(this.getFirstCaptureGroup(/A\[(.*?)\]/, learnLine));
         const newQTableVal = parseFloat(this.getFirstCaptureGroup(/n=(.*?) /, learnLine));
 
@@ -211,7 +211,7 @@ class LogParser {
         this.moveToNextLine();
 
         while(!this.currentLine.includes("END STATE")) {
-            const chunkCoord = Position.fromArray(this.extractSemicolonSeparatedNumbers(/\((.*?)\)/, this.currentLine, true));
+            const chunkCoord = AIPosition.fromArray(this.extractSemicolonSeparatedNumbers(/\((.*?)\)/, this.currentLine, true));
             const rightWayQValues = this.extractSemicolonSeparatedNumbers(/R{(.*?)}/, this.currentLine, false);
             const wrongWayQValues = this.extractSemicolonSeparatedNumbers(/W{(.*?)}/, this.currentLine, false);
 

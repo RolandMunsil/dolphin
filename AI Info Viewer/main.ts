@@ -1,7 +1,8 @@
-const logFile = "dolphin.log";
+const logFile = "dolphin DELETEME.log";
 
 const mousePosNormalized = new THREE.Vector2();
-const meshToChunkPosMap = new Map<THREE.Object3D, Position>();
+const meshToChunkPosMap = new Map<THREE.Object3D, AIPosition>();
+let aiSession: AISession;
 
 startLogParsing();
 
@@ -16,6 +17,8 @@ function startLogParsing() {
 }
 
 function displayInfo(session: AISession) {
+    aiSession = session;
+
     console.log('Laps:');
     console.log(session.history.laps.map(l=>l.timeMillis).join(";"));
     console.log('Death times:');
@@ -37,24 +40,48 @@ function displayInfo(session: AISession) {
         scene.add(cube);
         meshToChunkPosMap.set(cube, coord);
     }
-    // const firstLapEndTime = session.history.laps[20].endFrame;
-    // const path = session.history.getPathBetweenTimeStamps(0, firstLapEndTime);
+}
 
-    // const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
-    // lineMaterial.linewidth = 5;
-    // let lineGeometry = new THREE.Geometry();
+function updateInfoText(textOutput: HTMLTextAreaElement, chunkPos: AIPosition) {
+    const sesInfo = aiSession.sessionInfo;
+    textOutput.value = `${sesInfo.hoursToNoExploration} hours to exploration=0\r\n`;
+    textOutput.value += `Learn rate: ${sesInfo.learningRate} | Discount rate: ${sesInfo.discountRate}\r\n`;
+    textOutput.value += `Chunk size: ${sesInfo.chunkSize}\r\n`;
+    textOutput.value += "===========================================================\r\n";
 
-    // for(const elem of path.path) {
-    //     if(elem instanceof Position) {
-    //         lineGeometry.vertices.push(
-    //             new THREE.Vector3(elem.x, elem.y, elem.z),
-    //         );
-    //     } else {
-    //         scene.add(new THREE.Line( lineGeometry, lineMaterial ));
-    //         lineGeometry = new THREE.Geometry();
-    //     }
-    // }
-    // scene.add(new THREE.Line( lineGeometry, lineMaterial ));
+    const frames = aiSession.history.getFramesAssociatedWithChunk(chunkPos);
+    textOutput.value += `Selected chunk: (${chunkPos.x}, ${chunkPos.y}, ${chunkPos.z})\r\n`;
+
+    let framesStr = "";
+    let visitCount = 0;
+    let updateCount = 0;
+
+    let prevFrame: AIFrame | null = null;
+    let prevFrameNumber = -1;
+    for(const [frameInfo, frameNumber] of frames) {
+        if(frameInfo.qTableUpdate !== null && frameInfo.qTableUpdate.updatedStateChunkPosition.equals(chunkPos)) {
+            // Chunk table was updated
+            updateCount++;
+            
+            if(prevFrame === null || prevFrameNumber+1 !== frameNumber) {
+                alertError("Unexpected update");
+                framesStr += "Unexpected update\r\n";
+            } else if(prevFrame !== null) {
+                assert(frameInfo.qTableUpdate.actionIndex === prevFrame.actionTaken,"Invalid frame pairing");
+                framesStr += ` -> ${frameInfo.qTableUpdate.newValue}\r\n`;
+            }
+        }
+        if(chunkContainingPosition(frameInfo.vehiclePos, sesInfo.chunkSize).equals(chunkPos)) {
+            visitCount++;
+            framesStr += `F${frameNumber}: `;
+            framesStr += `${Action[frameInfo.actionTaken]} (rw=${frameInfo.vehicleGoingRightDirection}) (best=${frameInfo.bestActionTaken})`;
+        }
+        prevFrame = frameInfo;
+        prevFrameNumber = frameNumber;
+    }
+    textOutput.value += `Visit/Update: ${visitCount}/${updateCount}\r\n`;
+    textOutput.value += "----------------\r\n";
+    textOutput.value += framesStr;
 }
 
 function createScene() {
@@ -84,11 +111,11 @@ function createScene() {
             if(pos === undefined) {
                 alertError("bad");
             } else {
-                const textOutput = document.getElementById("text-output");
+                const textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
                 if(textOutput === null) {
                     alertError("bad");
                 } else {
-                    textOutput.innerText = `${pos.x}, ${pos.y}, ${pos.z}`;
+                    updateInfoText(textOutput, pos);
                 }
             }
         }

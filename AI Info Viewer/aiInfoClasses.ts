@@ -1,4 +1,4 @@
-class Position {
+class AIPosition {
     public x: number;
     public y: number;
     public z: number;
@@ -11,18 +11,18 @@ class Position {
 
     public static fromArray(vals: number[]) {
         assert(vals.length === 3, "Incorrect position array length.");
-        return new Position(vals[0], vals[1], vals[2]);
+        return new AIPosition(vals[0], vals[1], vals[2]);
     }
 
-    public equals(other: Position) {
+    public equals(other: AIPosition) {
         return this.x === other.x 
             && this.y === other.y
             && this.z === other.z;
     }
 }
 
-function chunkContainingPosition(pos: Position, chunkSize: number) {
-    return new Position(
+function chunkContainingPosition(pos: AIPosition, chunkSize: number) {
+    return new AIPosition(
         Math.floor(pos.x / chunkSize),
         Math.floor(pos.y / chunkSize),
         Math.floor(pos.z / chunkSize)
@@ -68,14 +68,14 @@ function actionStringToAction(actionString : string) : Action {
 }
 
 class QTableUpdate {
-    public updatedStateChunkPosition!: Position;
+    public updatedStateChunkPosition!: AIPosition;
     public updatedStateVehicleGoingRightWay!: boolean;
     public actionIndex!: number;
     public newValue!: number;
 }
 
 class AIFrame {
-    public vehiclePos!: Position;
+    public vehiclePos!: AIPosition;
     public vehicleGoingRightDirection!: boolean;
     public qTableUpdate!: QTableUpdate | null;
     public actionTaken!: number;
@@ -109,12 +109,12 @@ class PathHistorySegmentDeath {
  }
 
 class PathSegment {
-     public path: (Position | PathHistorySegmentDeath)[];
+     public path: (AIPosition | PathHistorySegmentDeath)[];
 
      public get totalFrames() : number {
          let sum = 0;
          for(const elem of this.path) {
-             if(elem instanceof Position) {
+             if(elem instanceof AIPosition) {
                 sum++;
              } else {
                  sum += elem.restoreFrames;
@@ -169,7 +169,7 @@ class AIHistoryLog {
         return this.iterateThroughLogWithTimes(()=>true);
     }
 
-    public getValueInQTableSoFar(chunkPos: Position, rightWay: boolean, actionIndex: number) {
+    public getValueInQTableSoFar(chunkPos: AIPosition, rightWay: boolean, actionIndex: number) {
         return this.qTableSoFar.getChunk(chunkPos).getValue(rightWay, actionIndex);
     }
 
@@ -215,6 +215,22 @@ class AIHistoryLog {
 
         assert(path.totalFrames === (endInclusive-startInclusive)+1, "Path size incorrect");
         return path;
+    }
+
+    public getFramesAssociatedWithChunk(chunkPos: AIPosition) {
+        const frames: [AIFrame, number][] = [];
+        const chunkSize = this.chunkSize;
+        this.iterateThroughLogWithTimes(function(entry, frame) {
+            if(entry instanceof AIFrame) {
+                if(entry.qTableUpdate !== null && entry.qTableUpdate.updatedStateChunkPosition.equals(chunkPos)) {
+                    frames.push([entry, frame]);
+                } else if(chunkContainingPosition(entry.vehiclePos, chunkSize).equals(chunkPos)) {
+                    frames.push([entry, frame]);
+                }
+            }
+            return true;
+        });
+        return frames;
     }
 
     private get topLogIndex() : number { return this.log.length - 1; }
@@ -281,7 +297,7 @@ class ChunkStates {
 class QTable {
     private chunks: ChunkStates[][][];
     private _chunkCount: number;
-    private allChunkCoords: Position[];
+    private allChunkCoords: AIPosition[];
 
     constructor() {
         this.chunks = [];
@@ -292,7 +308,7 @@ class QTable {
     public get chunkCount() { return this._chunkCount; }
     public get chunkCoords() { return this.allChunkCoords; }
 
-    public chunkHasValues(pos: Position) : boolean {
+    public chunkHasValues(pos: AIPosition) : boolean {
         const x = pos.x;
         const y = pos.y;
         const z = pos.z;
@@ -309,11 +325,11 @@ class QTable {
         return true;
     }
 
-    public makeEmptyChunkIfOneDoesntExist(pos: Position) {
+    public makeEmptyChunkIfOneDoesntExist(pos: AIPosition) {
         this.getChunk(pos);
     }
 
-    public getChunk(pos: Position) : ChunkStates {
+    public getChunk(pos: AIPosition) : ChunkStates {
         const x = pos.x;
         const y = pos.y;
         const z = pos.z;
@@ -327,7 +343,7 @@ class QTable {
         if(!(z in this.chunks[x][y])) {
             this._chunkCount++;
             this.chunks[x][y][z] = new ChunkStates();
-            this.allChunkCoords.push(new Position(x,y,z));
+            this.allChunkCoords.push(new AIPosition(x,y,z));
         }
         return this.chunks[x][y][z];
     }
