@@ -1,5 +1,11 @@
 const logFile = "dolphin DELETEME.log";
 
+let mouseDown = false;
+let click = false;
+window.addEventListener('mousedown', ()=>{mouseDown = true; click = true;});
+window.addEventListener('mouseup', ()=>{mouseDown = false; click = false;});
+
+
 const mousePosNormalized = new THREE.Vector2();
 const meshToChunkPosMap = new Map<THREE.Object3D, AIPosition>();
 let aiSession: AISession;
@@ -104,20 +110,23 @@ function createScene() {
         requestAnimationFrame(animate);
         controls.update();
 
-        raycaster.setFromCamera(mousePosNormalized, camera);
-        const intersections = raycaster.intersectObjects(scene.children);
-        if(intersections.length > 0) {
-            const pos = meshToChunkPosMap.get(intersections[0].object);
-            if(pos === undefined) {
-                alertError("bad");
-            } else {
-                const textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
-                if(textOutput === null) {
+        if(click) {
+            raycaster.setFromCamera(mousePosNormalized, camera);
+            const intersections = raycaster.intersectObjects(scene.children);
+            if(intersections.length > 0) {
+                const pos = meshToChunkPosMap.get(intersections[0].object);
+                if(pos === undefined) {
                     alertError("bad");
                 } else {
-                    updateInfoText(textOutput, pos);
+                    const textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
+                    if(textOutput === null) {
+                        alertError("bad");
+                    } else {
+                        updateInfoText(textOutput, pos);
+                    }
                 }
             }
+            click = false;
         }
 
         renderer.render(scene, camera);
