@@ -75,6 +75,11 @@ class LogParser {
         }
         const millisEnd = Date.now();
         console.log(`Read ~${this.currentLineIndex} lines in ${(millisEnd-millisStart)/1000.0}seconds`);
+        sessionInfo.totalLearnFrames = this.totalLearn;
+        sessionInfo.totalNoLearnFrames = this.totalNoLearn;
+        sessionInfo.totalCrashFrames = this.totalCrashFrames;
+        sessionInfo.totalLostFrames = this.totalLostFrames;
+
         return new AISession(sessionInfo, historyLog);
     }
 

@@ -39,9 +39,24 @@ function writeLineToTextDisplay(str: string = "") {
     textOutput.value += `${str}\r\n`;
 }
 
+function displayCommonInfoText() {
+    const sesInfo = aiSession.sessionInfo;
+    writeLineToTextDisplay(`${sesInfo.hoursToNoExploration} hours to 0 exploration`);
+    writeLineToTextDisplay(`Learn rate: ${sesInfo.learningRate} | Discount rate: ${sesInfo.discountRate}`);
+    writeLineToTextDisplay(`Chunk size: ${sesInfo.chunkSize}`);
+    writeLineToTextDisplay();
+    writeLineToTextDisplay(`Total frames:    ${aiSession.history.getTotalFramesSoFar()}`);
+    writeLineToTextDisplay(`Frames learning: ${aiSession.sessionInfo.totalLearnFrames}`);
+    writeLineToTextDisplay(`Frames no learn: ${aiSession.sessionInfo.totalNoLearnFrames}`);
+    writeLineToTextDisplay(`Frames dead:     ${aiSession.sessionInfo.totalCrashFrames}`);
+    writeLineToTextDisplay(`Frames lost:     ${aiSession.sessionInfo.totalLostFrames}`);
+    writeLineToTextDisplay("===========================================================");
+}
+
 function displayInfo(session: AISession) {
     aiSession = session;
 
+    displayCommonInfoText();
     writeLineToTextDisplay('Laps times (millis):');
     writeLineToTextDisplay(session.history.laps.map(l=>l.timeMillis).join("\r\n"));
     writeLineToTextDisplay();
@@ -69,10 +84,7 @@ function displayInfo(session: AISession) {
 function updateInfoText(chunkPos: AIPosition) {
     const sesInfo = aiSession.sessionInfo;
     clearTextDisplay();
-    writeLineToTextDisplay(`${sesInfo.hoursToNoExploration} hours to 0 exploration`);
-    writeLineToTextDisplay(`Learn rate: ${sesInfo.learningRate} | Discount rate: ${sesInfo.discountRate}`);
-    writeLineToTextDisplay(`Chunk size: ${sesInfo.chunkSize}`);
-    writeLineToTextDisplay("===========================================================");
+    displayCommonInfoText();
 
     const frames = aiSession.history.getFramesAssociatedWithChunk(chunkPos);
     writeLineToTextDisplay(`Selected chunk: (${chunkPos.x}, ${chunkPos.y}, ${chunkPos.z})`);
@@ -105,7 +117,7 @@ function updateInfoText(chunkPos: AIPosition) {
             expectingQTableUpdate = true;
             visitCount++;
             framesStr += `F${frameNumber}: `;
-            framesStr += `${Action[frameInfo.actionTaken]} (rw=${frameInfo.vehicleGoingRightDirection}) (best=${frameInfo.bestActionTaken})`;
+            framesStr += `rw=${frameInfo.vehicleGoingRightDirection ? 'O' : 'X'} best=${frameInfo.bestActionTaken ? 'O' : 'X'} ${Action[frameInfo.actionTaken]}`;
         }
         prevFrame = frameInfo;
         prevFrameNumber = frameNumber;

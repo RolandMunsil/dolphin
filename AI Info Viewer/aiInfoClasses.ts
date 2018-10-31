@@ -371,6 +371,11 @@ class SessionInfo {
     public hoursToNoExploration: number = -1;
     public learningRate: number = -1;
     public discountRate: number = -1;
+
+    public totalCrashFrames = -1;
+    public totalLostFrames = -1;
+    public totalLearnFrames = -1;
+    public totalNoLearnFrames = -1;
 }
 
 class AISession {
