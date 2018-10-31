@@ -43,8 +43,16 @@ class LogParser {
                     this.moveToNextLine();
                     break;
                 case "SKIP":
+                    const associatedWithDeath = !(historyLog.getLogEntry(historyLog.topLogIndex) instanceof AILostFrames
+                        && historyLog.getLogEntry(historyLog.topLogIndex-1) instanceof AIRestoreFrames);
+
                     const restoreFrames = this.readRestoreFrames();
+                    restoreFrames.associatedWithDeath = associatedWithDeath;
                     historyLog.addLogEntry(restoreFrames);
+                    break;
+                case "FRAMESLOST":
+                    const entry = this.readFramesLost();
+                    historyLog.addLogEntry(entry);
                     break;
                 case "LAP":
                     const split = this.currentLine.split(' ');
@@ -99,7 +107,7 @@ class LogParser {
     }
 
     private readRestoreFrames() : AIRestoreFrames {
-        const restoreFrames = new AIRestoreFrames();
+        const restoreFrames = new AIRestoreFrames(0, true);
 
         while(this.currentLine.startsWith("> SKIP")) {
             restoreFrames.frameCount++;
@@ -107,7 +115,18 @@ class LogParser {
             this.expectCountsToEqual(this.totalCrashFrames, this.currentLine);
             this.moveToNextLine();
         }
+
         return restoreFrames;
+    }
+
+    private readFramesLost() {
+        const splitFL = this.currentLine.split(' ');
+        const lostFrameCount = parseInt(splitFL[splitFL.length - 2]);
+        this.totalLostFrames += lostFrameCount;
+        this.expectCountsToEqual(this.totalLostFrames, this.currentLine);
+        this.moveToNextLine();
+        const entry = new AILostFrames(lostFrameCount);
+        return entry;
     }
 
     private readLocLearnActTriplet(sessionInfo : SessionInfo, historyLog: AIHistoryLog) : AIFrame {

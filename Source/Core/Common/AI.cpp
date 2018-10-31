@@ -377,6 +377,22 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     frame_at_last_input_request = thisFrame;
   }
 
+  u32 expectedTotalFrames = 1 + 
+      (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
+       skip_learning_because_cant_access_info_frames_lost +
+       generate_inputs_but_dont_learn_frame_count);
+  if (thisFrame != expectedTotalFrames)
+  {
+    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    AILog("Frames lost for unknown reason!");
+
+    u32 frameDiff = thisFrame - expectedTotalFrames;
+    skip_learning_because_cant_access_info_frames_lost += frameDiff;
+
+    LogToFileListener("> FRAMESLOST unknown %i (ct=%i)", frameDiff,
+                      skip_learning_because_cant_access_info_frames_lost);
+  }
+
   if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
       player_info_retriever.DuringRestoreFrameCount() > 0)
   {

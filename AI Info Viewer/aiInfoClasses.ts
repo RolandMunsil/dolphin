@@ -84,9 +84,19 @@ class AIFrame {
 
 class AIRestoreFrames {
     public frameCount: number;
+    public associatedWithDeath: boolean;
 
-    constructor() {
-        this.frameCount = 0;
+    constructor(frameCount: number, associatedWithDeath: boolean) {
+        this.frameCount = frameCount;
+        this.associatedWithDeath = associatedWithDeath;
+    }
+}
+
+class AILostFrames {
+    public frameCount: number;
+
+    constructor(frameCount: number) {
+        this.frameCount = frameCount;
     }
 }
 
@@ -100,16 +110,18 @@ class Lap {
     }
 }
 
-class PathHistorySegmentDeath {
-    public restoreFrames: number;
+class PathHistorySegmentDeathOrLost {
+    public frameCount: number;
+    public death: boolean;
 
-    constructor(restoreFrames: number) {
-        this.restoreFrames = restoreFrames;
+    constructor(frameCount: number, death: boolean) {
+        this.frameCount = frameCount;
+        this.death = death;
     }
  }
 
 class PathSegment {
-     public path: (AIPosition | PathHistorySegmentDeath)[];
+     public path: (AIPosition | PathHistorySegmentDeathOrLost)[];
 
      public get totalFrames() : number {
          let sum = 0;
@@ -117,7 +129,7 @@ class PathSegment {
              if(elem instanceof AIPosition) {
                 sum++;
              } else {
-                 sum += elem.restoreFrames;
+                 sum += elem.frameCount;
              }
          }
          return sum;     }
@@ -128,7 +140,7 @@ class PathSegment {
 }
 
 class AIHistoryLog {
-    private log: (AIFrame | AIRestoreFrames)[];
+    private log: (AIFrame | AIRestoreFrames | AILostFrames)[];
     public laps: Lap[];
 
     private qTableSoFar: QTable;
@@ -142,11 +154,16 @@ class AIHistoryLog {
         this.chunkSize = chunkSize;
     }
 
-    public get deathCount() : number { return this.log.filter(e=>e instanceof AIRestoreFrames).length; }
+    public get deathCount() : number { return this.log.filter(e=>e instanceof AIRestoreFrames && e.associatedWithDeath).length; }
+    public get topLogIndex() : number { return this.log.length - 1; }
 
-    public addLogEntry(entry: AIFrame | AIRestoreFrames) {
+    public addLogEntry(entry: AIFrame | AIRestoreFrames | AILostFrames) {
         this.applyLogEntryToQTable(entry, this.qTableSoFar);
         this.log.push(entry);
+    }
+
+    public getLogEntry(index: number) {
+        return this.log[index];
     }
 
     public checkThatPreviousFrameWasRestore() {
@@ -155,8 +172,8 @@ class AIHistoryLog {
 
     public getAllDeathTimes() : number[] {
         const deathTimes: number[] = [];
-        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames), curFrames: number) {
-            if(entry instanceof AIRestoreFrames) {
+        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames | AILostFrames), curFrames: number) {
+            if(entry instanceof AIRestoreFrames && entry.associatedWithDeath) {
                 deathTimes.push(curFrames+1);
             }
             return true;
@@ -191,12 +208,12 @@ class AIHistoryLog {
 
     public getPathBetweenTimeStamps(startInclusive: number, endInclusive: number) {
         const path = new PathSegment();
-        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames), curFrames: number) {
+        this.iterateThroughLogWithTimes(function(entry: (AIFrame | AIRestoreFrames | AILostFrames), curFrames: number) {
             if(curFrames > endInclusive) {
                 return false;
             }
             
-            if(entry instanceof AIRestoreFrames) {
+            if(entry instanceof AIRestoreFrames || entry instanceof AILostFrames) {
                 let restoreFrames = entry.frameCount;
                 if(startInclusive > curFrames) {
                     restoreFrames -= startInclusive - curFrames;
@@ -205,7 +222,7 @@ class AIHistoryLog {
                     restoreFrames -= (curFrames + entry.frameCount) - endInclusive;
                 }
                 if(restoreFrames > 0) {
-                    path.path.push(new PathHistorySegmentDeath(restoreFrames));
+                    path.path.push(new PathHistorySegmentDeathOrLost(restoreFrames, entry instanceof AIRestoreFrames));
                 }
             } else if(curFrames >= startInclusive) {
                 path.path.push(entry.vehiclePos);
@@ -233,9 +250,7 @@ class AIHistoryLog {
         return frames;
     }
 
-    private get topLogIndex() : number { return this.log.length - 1; }
-
-    private iterateThroughLogWithTimes(loopFn: (e: (AIFrame | AIRestoreFrames), st: number) => boolean) {
+    private iterateThroughLogWithTimes(loopFn: (e: (AIFrame | AIRestoreFrames | AILostFrames), st: number) => boolean) {
         let curFrames = 0;
         for(const entry of this.log) {
             const continueLoop = loopFn(entry, curFrames);
@@ -245,6 +260,8 @@ class AIHistoryLog {
 
             if(entry instanceof AIRestoreFrames) {
                 curFrames += entry.frameCount;
+            } else if(entry instanceof AILostFrames) {
+                curFrames += entry.frameCount;
             } else {
                 curFrames++;
             }
@@ -252,7 +269,7 @@ class AIHistoryLog {
         return curFrames;
     }
 
-    private applyLogEntryToQTable(entry: AIFrame | AIRestoreFrames, qTable: QTable) {
+    private applyLogEntryToQTable(entry: AIFrame | AIRestoreFrames | AILostFrames, qTable: QTable) {
         if (entry instanceof AIFrame) {
             if(entry.qTableUpdate !== null) {
                 const tableUpdate = entry.qTableUpdate;
