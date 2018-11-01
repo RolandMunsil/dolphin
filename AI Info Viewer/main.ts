@@ -1,10 +1,5 @@
 const logFile = "dolphin.log";
 
-let mouseDown = false;
-let click = false;
-window.addEventListener('mousedown', ()=>{mouseDown = true; click = true;});
-window.addEventListener('mouseup', ()=>{mouseDown = false; click = false;});
-
 let textOutput: HTMLTextAreaElement;
 window.onload = function() { 
     textOutput = document.getElementById("text-output") as HTMLTextAreaElement;
@@ -13,8 +8,6 @@ window.onload = function() {
     }
 };
 
-const mousePosNormalized = new THREE.Vector2();
-const meshToChunkPosMap = new Map<THREE.Object3D, AIPosition>();
 let aiSession: AISession;
 
 startLogParsing();
@@ -66,18 +59,11 @@ function displayInfo(session: AISession) {
     const qTable = session.history.constructQTableAsOfNow();
     const chunkSize = session.sessionInfo.chunkSize;
 
-    const scene = createScene();
-    const geometry = new THREE.BoxGeometry(chunkSize, chunkSize, chunkSize);
+    const visualizer = new ChunkVisualizer(chunkSize);
+    visualizer.onChunkClickedCallback = updateInfoText;
     for(const coord of qTable.chunkCoords) {
         const val = qTable.getChunk(coord).getValue(true, Action.FORWARD);
-        const color = new THREE.Color(val/2000, val/2000, val/2000);
-        const material = new THREE.MeshBasicMaterial({ color: color });
-        //material.transparent = true;
-        //material.opacity = 0.05;
-        const cube = new THREE.Mesh(geometry, material);
-        cube.position.set(coord.x * chunkSize, coord.y * chunkSize, coord.z * chunkSize);
-        scene.add(cube);
-        meshToChunkPosMap.set(cube, coord);
+        visualizer.addChunk(coord, val/2000);
     }
 }
 
@@ -131,50 +117,92 @@ function updateInfoText(chunkPos: AIPosition) {
     writeToTextDisplay(framesStr);
 }
 
-function createScene() {
-    const renderWidth = window.innerWidth/2;
-    const renderHeight = window.innerHeight;
+class ChunkVisualizer {
+    private readonly renderWidth = window.innerWidth/2;
+    private readonly renderHeight = window.innerHeight;
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, renderWidth / renderHeight, 0.1, 100000);
-    camera.position.z = 1000;
-    const controls = new THREE.OrbitControls(camera);
+    private scene: THREE.Scene;
+    private camera: THREE.PerspectiveCamera;
+    private controls: THREE.OrbitControls;
+    private renderer: THREE.WebGLRenderer;
+    private raycaster: THREE.Raycaster;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true });
-    renderer.setClearColor('skyblue');
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(renderWidth, renderHeight);
-    document.body.appendChild(renderer.domElement);
+    private mousePosNormalized = new THREE.Vector2();
+    private mouseClick = false;
 
-    const raycaster = new THREE.Raycaster();
-    function animate() {
-        requestAnimationFrame(animate);
-        controls.enabled = mousePosNormalized.x <= 1;
+    private chunkSize: number;
+    private chunkGeometry: THREE.BoxGeometry;
+    private meshToChunkPosMap = new Map<THREE.Object3D, AIPosition>();
 
-        if(mousePosNormalized.x <= 1 && click) {
-            raycaster.setFromCamera(mousePosNormalized, camera);
-            const intersections = raycaster.intersectObjects(scene.children);
+    private get mouseIsOverCanvas(): boolean {
+        return Math.abs(this.mousePosNormalized.x) <= 1
+            && Math.abs(this.mousePosNormalized.y) <= 1;
+    }
+
+    public onChunkClickedCallback: (pos: AIPosition) =>void = ()=>{};
+
+    public constructor(chunkSize: number) {
+        this.chunkSize = chunkSize;
+        this.chunkGeometry = new THREE.BoxGeometry(chunkSize, chunkSize, chunkSize);
+
+        this.raycaster = new THREE.Raycaster();
+
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, this.renderWidth / this.renderHeight, 0.1, 100000);
+        this.camera.position.z = 1000;
+        this.controls = new THREE.OrbitControls(this.camera);
+
+        this.renderer = new THREE.WebGLRenderer({ alpha: true });
+        this.renderer.setClearColor('skyblue');
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(this.renderWidth, this.renderHeight);
+        document.body.appendChild(this.renderer.domElement);
+
+        this.onFrameRequest();
+
+        window.addEventListener('mousedown', ()=>this.mouseClick = true);
+        window.addEventListener('mouseup', ()=>this.mouseClick = false);
+        window.addEventListener('mousemove', this.onMouseMove.bind(this));
+    }
+
+    public addChunk(position: AIPosition, brightness: number) {
+        const color = new THREE.Color(brightness, brightness, brightness);
+        const material = new THREE.MeshBasicMaterial({ color: color });
+        //material.transparent = true;
+        //material.opacity = 0.05;
+        const cube = new THREE.Mesh(this.chunkGeometry, material);
+        cube.position.set(position.x * this.chunkSize, position.y * this.chunkSize, position.z * this.chunkSize);
+        this.scene.add(cube);
+        this.meshToChunkPosMap.set(cube, position);
+    }
+
+    private onMouseMove(event: MouseEvent) {
+        const canvasRect = this.renderer.domElement.getBoundingClientRect();
+        const x = event.clientX - canvasRect.left;
+        const y = event.clientY - canvasRect.top;
+        this.mousePosNormalized.x = (x / canvasRect.width) * 2 - 1;
+        this.mousePosNormalized.y = -(y / canvasRect.height) * 2 + 1;
+    }
+
+    private onFrameRequest() {
+        requestAnimationFrame(this.onFrameRequest.bind(this));
+        this.controls.enabled = this.mouseIsOverCanvas;
+
+        if(this.mouseIsOverCanvas && this.mouseClick) {
+            this.raycaster.setFromCamera(this.mousePosNormalized, this.camera);
+            const intersections = this.raycaster.intersectObjects(this.scene.children);
             if(intersections.length > 0) {
-                const pos = meshToChunkPosMap.get(intersections[0].object);
+                const pos = this.meshToChunkPosMap.get(intersections[0].object);
                 if(pos === undefined) {
                     alertError("bad");
                 } else {
-                    updateInfoText(pos);
+                    this.onChunkClickedCallback(pos);
                 }
             }
-            click = false;
         }
 
-        renderer.render(scene, camera);
+        this.mouseClick = false;
+
+        this.renderer.render(this.scene, this.camera);
     }
-    animate();
-    const onMouseMove = function(event: MouseEvent) {
-        const canvasRect = renderer.domElement.getBoundingClientRect();
-        const x = event.clientX - canvasRect.left;
-        const y = event.clientY - canvasRect.top;
-        mousePosNormalized.x = (x / canvasRect.width) * 2 - 1;
-        mousePosNormalized.y = -(y / canvasRect.height) * 2 + 1;
-    };
-    window.addEventListener('mousemove', onMouseMove);
-    return scene;
 }
