@@ -36,7 +36,8 @@ public:
   AI();
   ~AI();
 
-  bool IsEnabled(GCPadStatus userInput);
+  void UpdateBasedOnUserInput(GCPadStatus userInput);
+  bool IsEnabled() { return enabled; }
 
   GCPadStatus GetNextInput(const u32 pad_index);
 

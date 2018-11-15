@@ -176,7 +176,8 @@ GCPadStatus GCPad::GetInput() const
   pad.triggerLeft = static_cast<u8>(triggers[0] * 0xFF);
   pad.triggerRight = static_cast<u8>(triggers[1] * 0xFF);
 
-  if (ai->IsEnabled(pad))
+  ai->UpdateBasedOnUserInput(pad);
+  if (ai->IsEnabled())
   {
     return ai->GetNextInput(m_index);
   }

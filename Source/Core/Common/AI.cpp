@@ -113,7 +113,7 @@ AI::AI()
   lap_times_millis = std::vector<u32>();
 }
 
-bool AI::IsEnabled(GCPadStatus userInput)
+void AI::UpdateBasedOnUserInput(GCPadStatus userInput)
 {
   if (userInput.button & PAD_BUTTON_X)
   {
@@ -158,7 +158,6 @@ bool AI::IsEnabled(GCPadStatus userInput)
   {
     toggle_button_pressed_previous = false;
   }
-  return enabled;
 }
 
 ChunkCoordinates AI::CalculateUserChunk()
@@ -191,17 +190,6 @@ ScoredActions* AI::GetCurrentScoredActions(ChunkCoordinates chunkCoordinates)
 
 float AI::CalculateReward()
 {
-  // TODO: use these?
-  // 0x584 - obstacle collision
-  // 0x588	- track collision
-
-  // u32 player_race_status_ptr = PowerPC::HostRead_U32(player_state_ptr - 0x20);
-  // u32 checkpoint_number_also = PowerPC::HostRead_U32(player_race_status_ptr + 0x74);
-
-  // u32 checkpoint_number = PowerPC::HostRead_U32(player_state_ptr + 0x1CC);
-  // float frac_dist_to_next_checkpoint = PowerPC::HostRead_F32(player_state_ptr + 0x1D0);
-
-  // TODO: use this or position diff?
   return player_info_retriever.PlayerSpeed() * (player_info_retriever.GoingTheWrongWay() ? -1 : 1);
 }
 
