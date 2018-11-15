@@ -42,12 +42,21 @@ public:
   GCPadStatus GetNextInput(const u32 pad_index);
 
 private:
+  bool CheckForCorrectControllerIndex(const u32 pad_index);
+  bool CheckThatMemoryCanBeAccessed();
+  bool CheckThatRaceHasStarted(const u32 thisFrame);
+  bool CheckThatThisIsANewFrame(const u32 thisFrame);
+  void CheckForMissedFramesAndHandle(const u32 thisFrame);
+  bool CheckThatAIIsAlive();
+  void UpdateLapsAndRestoreCount();
+
   ChunkCoordinates CalculateUserChunk();
   ScoredActions* GetCurrentScoredActions(ChunkCoordinates chunkCoords);
   float CalculateReward();
   Action ChooseAction(ScoredActions* state, bool* action_chosen_randomly);
 
   void SaveStateToLog();
+  void WriteAIParametersToLog();
 
   std::default_random_engine generator;
   std::uniform_real_distribution<float> real_distribution;

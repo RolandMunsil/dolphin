@@ -67,22 +67,31 @@ void AI::SaveStateToLog()
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
       right_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk->going_right_way_actions.ScoreForAction((Action)a)
-                              << ";";
+                              << chunk->going_right_way_actions.ScoreForAction((Action)a) << ";";
     }
 
     std::ostringstream wrong_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
       wrong_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk->going_wrong_way_actions.ScoreForAction((Action)a)
-                              << ";";
+                              << chunk->going_wrong_way_actions.ScoreForAction((Action)a) << ";";
     }
 
     LogToFileListener("(%i;%i;%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y, chunk_coord.z,
                       right_way_values_string.str().c_str(), wrong_way_values_string.str().c_str());
   }
   LogToFileListener("====================== END STATE ======================");
+}
+
+void AI::WriteAIParametersToLog()
+{
+  LogToFileListener("________AI ENABLED________");
+  LogToFileListener("Chunk size: %f", CHUNK_SIZE_METERS);
+  LogToFileListener("Hours for exploration rate to get to zero: %f",
+                    EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS);
+  LogToFileListener("Learning rate: %f", LEARNING_RATE);
+  LogToFileListener("Discount rate: %f", DISCOUNT_RATE);
+  LogToFileListener("__END AI ENABLED SECTION__");
 }
 
 AI::AI()
@@ -139,13 +148,7 @@ void AI::UpdateBasedOnUserInput(GCPadStatus userInput)
       if (enabled)
       {
         AILog("~~~~~~~~~~~~AI ENABLED~~~~~~~~~~~~");
-        LogToFileListener("________AI ENABLED________");
-        LogToFileListener("Chunk size: %f", CHUNK_SIZE_METERS);
-        LogToFileListener("Hours for exploration rate to get to zero: %f",
-                          EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS);
-        LogToFileListener("Learning rate: %f", LEARNING_RATE);
-        LogToFileListener("Discount rate: %f", DISCOUNT_RATE);
-        LogToFileListener("__END AI ENABLED SECTION__");
+        WriteAIParametersToLog();
       }
       else
       {
@@ -209,10 +212,8 @@ Action AI::ChooseAction(ScoredActions* actions, bool* action_chosen_randomly)
   }
 }
 
-GCPadStatus AI::GetNextInput(const u32 pad_index)
+bool AI::CheckForCorrectControllerIndex(const u32 pad_index)
 {
-  std::chrono::time_point calc_start_time = std::chrono::system_clock::now();
-
   if (pad_index != 0)
   {
     if (debug_info_enabled)
@@ -220,9 +221,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
       AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
       AILog("Ignoring input request because pad index is %i", pad_index);
     }
-    return {};
+    return false;
   }
+  return true;
+}
 
+bool AI::CheckThatMemoryCanBeAccessed()
+{
   if (!MSR.DR)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -234,16 +239,38 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
       frameCountBeforeAddressTranslationDisabled = frame_at_last_input_request;
     }
 
-    return {};
+    return false;
   }
 
   if (!player_info_retriever.UpdateInfo())
   {
     PanicAlert("Pointer to player state is null!");
-    return {};
+    return false;
   }
-
-  u32 thisFrame = player_info_retriever.TotalFrames();
+  return true;
+}
+bool AI::CheckThatRaceHasStarted(const u32 thisFrame)
+{
+  if (thisFrame == 0)
+  {
+    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    AILog("Ignoring input request because race hasn't started");
+    return false;
+  }
+  return true;
+}
+bool AI::CheckThatThisIsANewFrame(const u32 thisFrame)
+{
+  if (thisFrame == frame_at_last_input_request)
+  {
+    // AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    // AILog("Duplicate request for frame, returning cached input.");
+    return false;
+  }
+  return true;
+}
+void AI::CheckForMissedFramesAndHandle(const u32 thisFrame)
+{
   if (addressTranslationDisabledLastInputRequest)
   {
     if (thisFrame > frame_at_last_input_request + 1)
@@ -263,28 +290,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     addressTranslationDisabledLastInputRequest = false;
   }
 
-  if (thisFrame == 0)
-  {
-    AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    AILog("Ignoring input request because race hasn't started");
-    return {};
-  }
-
-  if (thisFrame == frame_at_last_input_request)
-  {
-    //AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    //AILog("Duplicate request for frame, returning cached input.");
-    return cached_inputs;
-  }
-  else
-  {
-    frame_at_last_input_request = thisFrame;
-  }
-
-  u32 expectedTotalFrames = 1 + 
-      (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
-       skip_learning_because_cant_access_info_frames_lost +
-       generate_inputs_but_dont_learn_frame_count);
+  u32 expectedTotalFrames =
+      1 + (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
+           skip_learning_because_cant_access_info_frames_lost +
+           generate_inputs_but_dont_learn_frame_count);
   if (thisFrame != expectedTotalFrames)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -296,7 +305,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     LogToFileListener("> FRAMESLOST unknown %i (ct=%i)", frameDiff,
                       skip_learning_because_cant_access_info_frames_lost);
   }
-
+}
+bool AI::CheckThatAIIsAlive()
+{
   if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
       player_info_retriever.DuringRestoreFrameCount() > 0)
   {
@@ -312,9 +323,12 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
                       skip_learning_because_crashing_frame_count);
 
     cached_inputs = {};
-    return {};
+    return false;
   }
-
+  return true;
+}
+void AI::UpdateLapsAndRestoreCount()
+{
   if (player_info_retriever.CurrentLapNumber() != prevLapNumber)
   {
     if (player_info_retriever.CurrentLapNumber() != prevLapNumber + 1)
@@ -349,6 +363,31 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
       PanicAlert("Restore count is not being calculated properly!");
     }
   }
+}
+
+GCPadStatus AI::GetNextInput(const u32 pad_index)
+{
+  std::chrono::time_point calc_start_time = std::chrono::system_clock::now();
+
+  ///
+  /// PERFORM CHECKS & UPDATE CERTAIN STATS
+  ///
+  if (!CheckForCorrectControllerIndex(pad_index) || !CheckThatMemoryCanBeAccessed()) { return {}; }
+
+  u32 thisFrame = player_info_retriever.TotalFrames();
+
+  if (!CheckThatRaceHasStarted(thisFrame)) { return {}; }
+  if (!CheckThatThisIsANewFrame(thisFrame)) { return cached_inputs; }
+  CheckForMissedFramesAndHandle(thisFrame);
+
+  frame_at_last_input_request = thisFrame;
+
+  if (!CheckThatAIIsAlive()) { return {}; }
+  UpdateLapsAndRestoreCount();
+
+  ///
+  /// DO LEARNING
+  ///
 
   ChunkCoordinates userChunk = CalculateUserChunk();
   ScoredActions* scoredActions = GetCurrentScoredActions(userChunk);
@@ -474,7 +513,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   if (learning_occured_frame_count % (SECONDS_BETWEEN_STATE_SAVES * 60) == 0)
   {
-    AILog("Saved state to dolphin.log");
+    AILog("Saved current state to log");
     SaveStateToLog();
   }
 
