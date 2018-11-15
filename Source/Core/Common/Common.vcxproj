@@ -36,6 +36,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClInclude Include="Actions.h" />
     <ClInclude Include="AI.h" />
     <ClInclude Include="Align.h" />
     <ClInclude Include="Analytics.h" />
@@ -48,6 +49,7 @@
     <ClInclude Include="BitUtils.h" />
     <ClInclude Include="BlockingLoop.h" />
     <ClInclude Include="CDUtils.h" />
+    <ClInclude Include="Chunk.h" />
     <ClInclude Include="ChunkFile.h" />
     <ClInclude Include="CodeBlock.h" />
     <ClInclude Include="ColorUtil.h" />
@@ -142,9 +144,9 @@
     <ClInclude Include="NandPaths.h" />
     <ClInclude Include="Network.h" />
     <ClInclude Include="PcapFile.h" />
+    <ClInclude Include="PlayerInfoRetriever.h" />
     <ClInclude Include="Profiler.h" />
     <ClInclude Include="QoSSession.h" />
-    <ClInclude Include="QState.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="Result.h" />
     <ClInclude Include="ScopeGuard.h" />

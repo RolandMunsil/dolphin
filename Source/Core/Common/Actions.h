@@ -85,15 +85,3 @@ public:
     return best_score;
   }
 };
-
-struct Chunk
-{
-  ScoredActions going_right_way_actions;
-  ScoredActions going_wrong_way_actions;
-
-  Chunk()
-  {
-    going_right_way_actions = ScoredActions();
-    going_wrong_way_actions = ScoredActions();
-  }
-};

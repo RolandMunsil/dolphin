@@ -281,7 +281,13 @@
     <ClInclude Include="AI.h">
       <Filter>AI</Filter>
     </ClInclude>
-    <ClInclude Include="QState.h">
+    <ClInclude Include="Actions.h">
+      <Filter>AI</Filter>
+    </ClInclude>
+    <ClInclude Include="Chunk.h">
+      <Filter>AI</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerInfoRetriever.h">
       <Filter>AI</Filter>
     </ClInclude>
   </ItemGroup>
