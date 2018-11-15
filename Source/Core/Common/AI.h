@@ -45,7 +45,6 @@ private:
   ScoredActions* GetCurrentScoredActions(ChunkCoordinates chunkCoords);
   float CalculateReward();
   Action ChooseAction(ScoredActions* state, bool* action_chosen_randomly);
-  GCPadStatus GenerateInputsFromAction(Action action);
 
   void SaveStateToLog();
 

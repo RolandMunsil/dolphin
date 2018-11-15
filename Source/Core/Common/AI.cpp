@@ -221,90 +221,6 @@ Action AI::ChooseAction(ScoredActions* actions, bool* action_chosen_randomly)
   }
 }
 
-GCPadStatus AI::GenerateInputsFromAction(Action action)
-{
-  GCPadStatus pad = {};
-
-  // Always be accelerating
-  pad.button = PAD_BUTTON_A;
-  pad.analogA = 0xFF;
-
-  // Don't change the camera
-  pad.substickX = GCPadStatus::C_STICK_CENTER_X;
-  pad.substickY = GCPadStatus::C_STICK_CENTER_Y;
-
-  // Don't tilt forward or back
-  pad.stickY = GCPadStatus::MAIN_STICK_CENTER_Y;
-
-  // Boost
-  if (action == Action::BOOST_AND_FORWARD || action == Action::BOOST_AND_SOFT_TURN_RIGHT ||
-      action == Action::BOOST_AND_SOFT_TURN_LEFT || action == Action::BOOST_AND_SHARP_TURN_RIGHT ||
-      action == Action::BOOST_AND_SHARP_TURN_LEFT)
-  {
-    pad.button |= PAD_BUTTON_Y;
-  }
-
-  // Triggers
-  if (action == Action::DRIFT_AND_SHARP_TURN_RIGHT || action == Action::DRIFT_AND_SHARP_TURN_LEFT)
-  {
-    pad.triggerLeft = 0xFF;
-    pad.triggerRight = 0xFF;
-  }
-  else
-  {
-    pad.triggerLeft = 0;
-    pad.triggerRight = 0;
-  }
-
-  // Control stick
-  float stick_x_value;
-  switch (action)
-  {
-  case Action::FORWARD:
-  case Action::BOOST_AND_FORWARD:
-  {
-    stick_x_value = 0;
-    break;
-  }
-  case Action::SOFT_TURN_RIGHT:
-  case Action::BOOST_AND_SOFT_TURN_RIGHT:
-  {
-    stick_x_value = 0.5;
-    break;
-  }
-  case Action::SOFT_TURN_LEFT:
-  case Action::BOOST_AND_SOFT_TURN_LEFT:
-  {
-    stick_x_value = -0.5;
-    break;
-  }
-  case Action::SHARP_TURN_RIGHT:
-  case Action::BOOST_AND_SHARP_TURN_RIGHT:
-  case Action::DRIFT_AND_SHARP_TURN_RIGHT:
-  {
-    stick_x_value = 1.0;
-    break;
-  }
-  case Action::SHARP_TURN_LEFT:
-  case Action::BOOST_AND_SHARP_TURN_LEFT:
-  case Action::DRIFT_AND_SHARP_TURN_LEFT:
-  {
-    stick_x_value = -1.0;
-    break;
-  }
-  default:
-  {
-    PanicAlert("Invalid action");
-    stick_x_value = 0;
-  }
-  }
-
-  pad.stickX = static_cast<u8>(GCPadStatus::MAIN_STICK_CENTER_X +
-                               (stick_x_value * GCPadStatus::MAIN_STICK_RADIUS));
-
-  return pad;
-}
-
 GCPadStatus AI::GetNextInput(const u32 pad_index)
 {
   std::chrono::time_point calc_start_time = std::chrono::system_clock::now();
@@ -476,7 +392,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)",
                       previous_going_wrong_way ? "W" : "R", previous_chunk_coords.x,
                       previous_chunk_coords.y, previous_chunk_coords.z,
-                      ACTION_NAMES.at(previous_action).c_str(), old_score, new_score,
+                      ActionHelper::GetActionName(previous_action).c_str(), old_score, new_score,
                       learning_occured_frame_count);
   }
   else
@@ -487,10 +403,10 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   bool action_chosen_randomly;
   Action action_to_take = ChooseAction(scoredActions, &action_chosen_randomly);
-  GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
+  GCPadStatus inputs = ActionHelper::GenerateInputsFromAction(action_to_take);
 
   LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"),
-                    ACTION_NAMES.at(action_to_take).c_str());
+                    ActionHelper::GetActionName(action_to_take).c_str());
 
   if (debug_info_enabled)
   {
