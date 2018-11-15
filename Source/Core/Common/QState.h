@@ -42,7 +42,7 @@ const std::unordered_map<Action, std::string> ACTION_NAMES = {
     {Action::DRIFT_AND_SHARP_TURN_RIGHT, "Drift right"}};
 
 static const float INITIAL_ACTION_SCORE = 0;
-class QState
+class ScoredActions
 {
 private:
   float action_scores[(u32)Action::ACTIONS_COUNT];
@@ -63,7 +63,7 @@ private:
   }
 
 public:
-  QState() { std::fill_n(action_scores, (u32)Action::ACTIONS_COUNT, INITIAL_ACTION_SCORE); }
+  ScoredActions() { std::fill_n(action_scores, (u32)Action::ACTIONS_COUNT, INITIAL_ACTION_SCORE); }
 
   float ScoreForAction(Action action) { return action_scores[(u32)action]; }
 
@@ -86,14 +86,14 @@ public:
   }
 };
 
-struct ChunkStates
+struct Chunk
 {
-  QState going_right_way_state;
-  QState going_wrong_way_state;
+  ScoredActions going_right_way_actions;
+  ScoredActions going_wrong_way_actions;
 
-  ChunkStates()
+  Chunk()
   {
-    going_right_way_state = QState();
-    going_wrong_way_state = QState();
+    going_right_way_actions = ScoredActions();
+    going_wrong_way_actions = ScoredActions();
   }
 };

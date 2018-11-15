@@ -49,8 +49,8 @@ void AI::SaveStateToLog()
                     generate_inputs_but_dont_learn_frame_count);
   LogToFileListener("Frame Ct total: %i", player_info_retriever.TotalFrames());
   LogToFileListener("Restore count: %i", restore_count);
-  LogToFileListener("Chunk count: %i", chunk_to_states_map.size());
-  LogToFileListener("State count: %i", chunk_to_states_map.size() * 2);
+  LogToFileListener("Chunk count: %i", chunk_coord_to_chunk_map.size());
+  LogToFileListener("State count: %i", chunk_coord_to_chunk_map.size() * 2);
 
   std::ostringstream lap_times_string;
   for (u32 time : lap_times_millis)
@@ -61,13 +61,13 @@ void AI::SaveStateToLog()
 
   LogToFileListener("___Q TABLE___:");
 
-  for (auto const& [chunk_coord, chunk_states] : chunk_to_states_map)
+  for (auto const& [chunk_coord, chunk] : chunk_coord_to_chunk_map)
   {
     std::ostringstream right_way_values_string;
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
       right_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk_states->going_right_way_state.ScoreForAction((Action)a)
+                              << chunk->going_right_way_actions.ScoreForAction((Action)a)
                               << ";";
     }
 
@@ -75,7 +75,7 @@ void AI::SaveStateToLog()
     for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
     {
       wrong_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk_states->going_wrong_way_state.ScoreForAction((Action)a)
+                              << chunk->going_wrong_way_actions.ScoreForAction((Action)a)
                               << ";";
     }
 
@@ -95,7 +95,7 @@ AI::AI()
   real_distribution = std::uniform_real_distribution<float>(0.0, 1.0);
   action_index_distribution = std::uniform_int_distribution<u32>(0, (u32)Action::ACTIONS_COUNT - 1);
 
-  chunk_to_states_map = std::unordered_map<ChunkCoordinates, ChunkStates*, ChunkCoordinatesHasher>(
+  chunk_coord_to_chunk_map = std::unordered_map<ChunkCoordinates, Chunk*, ChunkCoordinatesHasher>(
       INITIAL_MAP_BUCKET_COUNT);
 
   learning_occured_frame_count = 0;
@@ -142,7 +142,7 @@ bool AI::IsEnabled(GCPadStatus userInput)
         LogToFileListener("________AI ENABLED________");
         LogToFileListener("Chunk size: %f", CHUNK_SIZE_METERS);
         LogToFileListener("Hours for exploration rate to get to zero: %f",
-                          EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS);
+                          EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS);
         LogToFileListener("Learning rate: %f", LEARNING_RATE);
         LogToFileListener("Discount rate: %f", DISCOUNT_RATE);
         LogToFileListener("__END AI ENABLED SECTION__");
@@ -171,21 +171,21 @@ ChunkCoordinates AI::CalculateUserChunk()
   return userChunk;
 }
 
-QState* AI::GetCurrentQState(ChunkCoordinates chunk)
+ScoredActions* AI::GetCurrentScoredActions(ChunkCoordinates chunkCoordinates)
 {
-  ChunkStates*& state_ref = chunk_to_states_map[chunk];
-  if (state_ref == nullptr)
+  Chunk*& chunk = chunk_coord_to_chunk_map[chunkCoordinates];
+  if (chunk == nullptr)
   {
-    state_ref = new ChunkStates;
+    chunk = new Chunk;
   }
 
   if (player_info_retriever.GoingTheWrongWay())
   {
-    return &(state_ref->going_wrong_way_state);
+    return &(chunk->going_wrong_way_actions);
   }
   else
   {
-    return &(state_ref->going_right_way_state);
+    return &(chunk->going_right_way_actions);
   }
 }
 
@@ -205,7 +205,7 @@ float AI::CalculateReward()
   return player_info_retriever.PlayerSpeed() * (player_info_retriever.GoingTheWrongWay() ? -1 : 1);
 }
 
-Action AI::ChooseAction(QState* state, bool* action_chosen_randomly)
+Action AI::ChooseAction(ScoredActions* actions, bool* action_chosen_randomly)
 {
   float rand = real_distribution(generator);
   if (rand < CalculateExplorationRate())
@@ -217,7 +217,7 @@ Action AI::ChooseAction(QState* state, bool* action_chosen_randomly)
   else
   {
     *action_chosen_randomly = false;
-    return state->BestAction();
+    return actions->BestAction();
   }
 }
 
@@ -447,7 +447,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   }
 
   ChunkCoordinates userChunk = CalculateUserChunk();
-  QState* state = GetCurrentQState(userChunk);
+  ScoredActions* scoredActions = GetCurrentScoredActions(userChunk);
 
   LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s", player_info_retriever.PlayerVehicleX(),
                     player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ(),
@@ -465,17 +465,17 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     // Update q-value using bellman equation
     reward = CalculateReward();
 
-    old_score = previous_state->ScoreForAction(previous_action);
-    max_future_reward = state->BestScore();
+    old_score = previous_scored_actions->ScoreForAction(previous_action);
+    max_future_reward = scoredActions->BestScore();
 
     float learned_score = reward + (DISCOUNT_RATE * max_future_reward) - old_score;
 
     new_score = old_score + (LEARNING_RATE * learned_score);
-    previous_state->SetActionScore(previous_action, new_score);
+    previous_scored_actions->SetActionScore(previous_action, new_score);
 
     LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)",
-                      previous_state_going_wrong_way ? "W" : "R", previous_state_coords.x,
-                      previous_state_coords.y, previous_state_coords.z,
+                      previous_going_wrong_way ? "W" : "R", previous_chunk_coords.x,
+                      previous_chunk_coords.y, previous_chunk_coords.z,
                       ACTION_NAMES.at(previous_action).c_str(), old_score, new_score,
                       learning_occured_frame_count);
   }
@@ -486,7 +486,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   }
 
   bool action_chosen_randomly;
-  Action action_to_take = ChooseAction(state, &action_chosen_randomly);
+  Action action_to_take = ChooseAction(scoredActions, &action_chosen_randomly);
   GCPadStatus inputs = GenerateInputsFromAction(action_to_take);
 
   LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"),
@@ -506,31 +506,32 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("Frame Ct gen inputs but don't learn:     %i",
           generate_inputs_but_dont_learn_frame_count);
     AILog("Restore count: %i", restore_count);
-    AILog("Chunk count: %i", chunk_to_states_map.size());
-    AILog("State count: %i", chunk_to_states_map.size() * 2);
+    AILog("Chunk count: %i", chunk_coord_to_chunk_map.size());
+    AILog("State count: %i", chunk_coord_to_chunk_map.size() * 2);
     AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
           player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());
     AILog("State:  (%3i, %3i, %3i) | %s way", userChunk.x, userChunk.y, userChunk.z,
           player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
     AILog("Speed:  %7.2f", player_info_retriever.PlayerSpeed());
     AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
-          state->ScoreForAction(Action::SHARP_TURN_LEFT),
-          state->ScoreForAction(Action::SOFT_TURN_LEFT), state->ScoreForAction(Action::FORWARD),
-          state->ScoreForAction(Action::SOFT_TURN_RIGHT),
-          state->ScoreForAction(Action::SHARP_TURN_RIGHT));
+          scoredActions->ScoreForAction(Action::SHARP_TURN_LEFT),
+          scoredActions->ScoreForAction(Action::SOFT_TURN_LEFT),
+          scoredActions->ScoreForAction(Action::FORWARD),
+          scoredActions->ScoreForAction(Action::SOFT_TURN_RIGHT),
+          scoredActions->ScoreForAction(Action::SHARP_TURN_RIGHT));
     AILog("        [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)",
-          state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
-          state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
-          state->ScoreForAction(Action::BOOST_AND_FORWARD),
-          state->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
-          state->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
+          scoredActions->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
+          scoredActions->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
+          scoredActions->ScoreForAction(Action::BOOST_AND_FORWARD),
+          scoredActions->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
+          scoredActions->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
     AILog("        [%7.2f,        ,        ,        , %7.2f] (drift)",
-          state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
-          state->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
+          scoredActions->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
+          scoredActions->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
     AILog("Action type:  %s", ACTION_NAMES.at(action_to_take).c_str());
     AILog("Way chosen:   %s", action_chosen_randomly ? "RANDOM" : "BEST");
     AILog("Explore rate: %f", CalculateExplorationRate());
-    AILog("Action score: %f", state->ScoreForAction(action_to_take));
+    AILog("Action score: %f", scoredActions->ScoreForAction(action_to_take));
     if (did_q_learning_last_frame)
     {
       if (reward == NAN || max_future_reward == NAN || old_score == NAN || new_score == NAN)
@@ -574,9 +575,9 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   }
 
   did_q_learning_last_frame = true;
-  previous_state = state;
-  previous_state_going_wrong_way = player_info_retriever.GoingTheWrongWay();
-  previous_state_coords = userChunk;
+  previous_scored_actions = scoredActions;
+  previous_going_wrong_way = player_info_retriever.GoingTheWrongWay();
+  previous_chunk_coords = userChunk;
   previous_action = action_to_take;
 
   cached_inputs = inputs;

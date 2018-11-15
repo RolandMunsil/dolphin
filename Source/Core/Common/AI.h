@@ -4,7 +4,6 @@
 #include <unordered_map>
 
 #include "Core/PowerPC/MMU.h"
-
 #include "InputCommon/GCPadStatus.h"
 
 #include "QState.h"
@@ -81,10 +80,10 @@ class AI
   // Exploration rate controls how often it will just pick a random value (instead of picking the
   // best value)
   // exploration rate decreases linearly over the course of 4 hours
-  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS = 5;
+  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS = 5;
   float CalculateExplorationRate()
   {
-    float timeToZeroInFrames = 60 * 60 * 60 * EXPLORATION_RATE_TIME_TO_ZERO_IN_HOURS;
+    float timeToZeroInFrames = 60 * 60 * 60 * EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS;
     return std::max(0.0f, 1 - (learning_occured_frame_count / timeToZeroInFrames));
   };
 
@@ -104,9 +103,9 @@ public:
 
 private:
   ChunkCoordinates CalculateUserChunk();
-  QState* GetCurrentQState(ChunkCoordinates chunk);
+  ScoredActions* GetCurrentScoredActions(ChunkCoordinates chunkCoords);
   float CalculateReward();
-  Action ChooseAction(QState* state, bool* action_chosen_randomly);
+  Action ChooseAction(ScoredActions* state, bool* action_chosen_randomly);
   GCPadStatus GenerateInputsFromAction(Action action);
 
   void SaveStateToLog();
@@ -115,14 +114,14 @@ private:
   std::uniform_real_distribution<float> real_distribution;
   std::uniform_int_distribution<u32> action_index_distribution;
 
-  std::unordered_map<ChunkCoordinates, ChunkStates*, ChunkCoordinatesHasher> chunk_to_states_map;
+  std::unordered_map<ChunkCoordinates, Chunk*, ChunkCoordinatesHasher> chunk_coord_to_chunk_map;
 
   PlayerInfoRetriever player_info_retriever;
 
   bool did_q_learning_last_frame;
-  QState* previous_state;
-  bool previous_state_going_wrong_way;
-  ChunkCoordinates previous_state_coords;
+  ScoredActions* previous_scored_actions;
+  bool previous_going_wrong_way;
+  ChunkCoordinates previous_chunk_coords;
   Action previous_action;
 
   bool enabled;
