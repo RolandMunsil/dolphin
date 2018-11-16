@@ -51,6 +51,7 @@ void AI::SaveStateToLog()
   LogToFileListener("Restore count: %i", restore_count);
   LogToFileListener("Chunk count: %i", chunk_coord_to_chunk_map.size());
   LogToFileListener("State count: %i", chunk_coord_to_chunk_map.size() * 2);
+  LogToFileListener("Current exploration rate: %.10f", CalculateExplorationRate());
 
   std::ostringstream lap_times_string;
   for (u32 time : lap_times_millis)
@@ -390,12 +391,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   ///
 
   ChunkCoordinates userChunk = CalculateUserChunk();
-  ScoredActions* scoredActions = GetCurrentScoredActions(userChunk);
 
   LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s", player_info_retriever.PlayerVehicleX(),
                     player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ(),
                     userChunk.x, userChunk.y, userChunk.z,
                     player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
+
+  ScoredActions* scoredActions = GetCurrentScoredActions(userChunk);
 
   float reward = NAN;
   float max_future_reward = NAN;
@@ -430,10 +432,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   bool action_chosen_randomly;
   Action action_to_take = ChooseAction(scoredActions, &action_chosen_randomly);
-  GCPadStatus inputs = ActionHelper::GenerateInputsFromAction(action_to_take);
 
   LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"),
                     ActionHelper::GetActionName(action_to_take).c_str());
+
+  ///
+  /// FINAL LOGGING AND CLEANUP
+  ///
 
   if (debug_info_enabled)
   {
@@ -480,7 +485,6 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
       if (reward == NAN || max_future_reward == NAN || old_score == NAN || new_score == NAN)
       {
         PanicAlert("Score calculation not done even though it should have been!!!!");
-        return {};
       }
 
       AILog("Reward for prev action: %f", reward);
@@ -513,7 +517,7 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   if (learning_occured_frame_count % (SECONDS_BETWEEN_STATE_SAVES * 60) == 0)
   {
-    AILog("Saved current state to log");
+    AILog("Saved full state to log");
     SaveStateToLog();
   }
 
@@ -523,8 +527,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   previous_chunk_coords = userChunk;
   previous_action = action_to_take;
 
+  GCPadStatus inputs = ActionHelper::GenerateInputsFromAction(action_to_take);
   cached_inputs = inputs;
-
   return inputs;
 }
 
