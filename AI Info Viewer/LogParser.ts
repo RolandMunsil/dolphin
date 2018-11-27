@@ -83,6 +83,22 @@ class LogParser {
         return new AISession(sessionInfo, historyLog);
     }
 
+    public justGetLaps(): Lap[] {
+        const laps: Lap[] = [];
+        while(!this.reachedEndOfLog) {
+            const lineType = this.currentLine.split(' ')[1];
+            if(lineType === "LAP") {
+                const split = this.currentLine.split(' ');
+                laps.push(new Lap(-1, parseInt(split[3])));
+                const expectedLapNum = parseInt(split[2]);
+                assert(expectedLapNum === laps.length-1, "Lap number mismatch.");
+            }
+            this.moveToNextLine();
+        }
+
+        return laps;
+    }
+
     private readLogHeader() : SessionInfo {
         const info: SessionInfo = new SessionInfo();
 
