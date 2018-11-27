@@ -12,12 +12,16 @@
 
 #include "Core/PowerPC/PowerPC.h"
 
+float MoveValueTowards(float rate, float oldValue, float newValue)
+{
+  return (oldValue * (1 - rate)) + (newValue * rate);
+}
+
 template <typename... Args>
 void AILog(const char* str, Args... args)
 {
   std::string formatted = StringFromFormat(str, args...);
-  LogListener*& logWindowListener =
-      LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
+  LogListener*& logWindowListener = LogManager::GetInstance()->GetListeners()[LogListener::LOG_WINDOW_LISTENER];
   logWindowListener->Log(LogTypes::LOG_LEVELS::LINFO, formatted.c_str());
 }
 
@@ -32,8 +36,19 @@ void LogToFileListener(const char* str, Args... args)
 
   std::ostringstream oss;
   oss << str << std::endl;
-  logFileListener->Log(LogTypes::LOG_LEVELS::LINFO,
-                       StringFromFormat(oss.str().c_str(), args...).c_str());
+  logFileListener->Log(LogTypes::LOG_LEVELS::LINFO, StringFromFormat(oss.str().c_str(), args...).c_str());
+}
+
+std::string StateToString(AdvantageUpdatingState state)
+{
+  std::ostringstream as_string;
+  as_string << "V[" << std::fixed << std::setprecision(10) << state.expectedOptimalValue << "]";
+
+  for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
+  {
+    as_string << std::fixed << std::setprecision(10) << state.advantages.ScoreForAction((Action)a) << ";";
+  }
+  return as_string.str();
 }
 
 void AI::SaveStateToLog()
@@ -41,12 +56,9 @@ void AI::SaveStateToLog()
   LogToFileListener("===================== BEGIN STATE =====================");
   LogToFileListener("___SUMMARY INFO___:");
   LogToFileListener("Frame Ct total learning: %i", learning_occured_frame_count);
-  LogToFileListener("Frame Ct lost because can't access info: %i",
-                    skip_learning_because_cant_access_info_frames_lost);
-  LogToFileListener("Frame Ct skip learning because death: %i",
-                    skip_learning_because_crashing_frame_count);
-  LogToFileListener("Frame Ct gen inputs but don't learn: %i",
-                    generate_inputs_but_dont_learn_frame_count);
+  LogToFileListener("Frame Ct lost because can't access info: %i", skip_learning_because_cant_access_info_frames_lost);
+  LogToFileListener("Frame Ct skip learning because death: %i", skip_learning_because_crashing_frame_count);
+  LogToFileListener("Frame Ct gen inputs but don't learn: %i", generate_inputs_but_dont_learn_frame_count);
   LogToFileListener("Frame Ct total: %i", player_info_retriever.TotalFrames());
   LogToFileListener("Restore count: %i", restore_count);
   LogToFileListener("Chunk count: %i", chunk_coord_to_chunk_map.size());
@@ -64,22 +76,10 @@ void AI::SaveStateToLog()
 
   for (auto const& [chunk_coord, chunk] : chunk_coord_to_chunk_map)
   {
-    std::ostringstream right_way_values_string;
-    for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
-    {
-      right_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk->going_right_way_actions.ScoreForAction((Action)a) << ";";
-    }
-
-    std::ostringstream wrong_way_values_string;
-    for (u32 a = 0; a < (u32)Action::ACTIONS_COUNT; a++)
-    {
-      wrong_way_values_string << std::fixed << std::setprecision(10)
-                              << chunk->going_wrong_way_actions.ScoreForAction((Action)a) << ";";
-    }
-
-    LogToFileListener("(%i;%i;%i)=R{%s}|W{%s}", chunk_coord.x, chunk_coord.y, chunk_coord.z,
-                      right_way_values_string.str().c_str(), wrong_way_values_string.str().c_str());
+    std::string right_way_values_string = StateToString(chunk->going_right_way_state);
+    std::string wrong_way_values_string = StateToString(chunk->going_wrong_way_state);
+    LogToFileListener("(%i;%i;%i)=$R{%s}|W{%s}", chunk_coord.x, chunk_coord.y, chunk_coord.z, right_way_values_string.c_str(),
+                      wrong_way_values_string.c_str());
   }
   LogToFileListener("====================== END STATE ======================");
 }
@@ -87,10 +87,13 @@ void AI::SaveStateToLog()
 void AI::WriteAIParametersToLog()
 {
   LogToFileListener("________AI ENABLED________");
+  LogToFileListener("Mode: ADVANTAGE)");
   LogToFileListener("Chunk size: %f", CHUNK_SIZE_METERS);
-  LogToFileListener("Hours for exploration rate to get to zero: %f",
-                    EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS);
-  LogToFileListener("Learning rate: %f", LEARNING_RATE);
+  LogToFileListener("Hours for exploration rate to get to zero: %f", EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS);
+  LogToFileListener("Advantage update rate: %f", ADVANTAGE_UPDATE_RATE);
+  LogToFileListener("EOV update rate: %f", EOV_UPDATE_RATE);
+  LogToFileListener("Normalization rate: %f", NORMALIZATION_RATE);
+  LogToFileListener("Normalizations per frame rate: %f", NORMALIZATIONS_PER_FRAME);
   LogToFileListener("Discount rate: %f", DISCOUNT_RATE);
   LogToFileListener("__END AI ENABLED SECTION__");
 }
@@ -105,8 +108,7 @@ AI::AI()
   real_distribution = std::uniform_real_distribution<float>(0.0, 1.0);
   action_index_distribution = std::uniform_int_distribution<u32>(0, (u32)Action::ACTIONS_COUNT - 1);
 
-  chunk_coord_to_chunk_map = std::unordered_map<ChunkCoordinates, Chunk*, ChunkCoordinatesHasher>(
-      INITIAL_MAP_BUCKET_COUNT);
+  chunk_coord_to_chunk_map = std::unordered_map<ChunkCoordinates, Chunk*, ChunkCoordinatesHasher>(INITIAL_MAP_BUCKET_COUNT);
 
   learning_occured_frame_count = 0;
   skip_learning_because_cant_access_info_frames_lost = 0;
@@ -166,15 +168,14 @@ void AI::UpdateBasedOnUserInput(GCPadStatus userInput)
 
 ChunkCoordinates AI::CalculateUserChunk()
 {
-  ChunkCoordinates userChunk = {
-      (s16)std::floorf(player_info_retriever.PlayerVehicleX() / CHUNK_SIZE_METERS),
-      (s16)std::floorf(player_info_retriever.PlayerVehicleY() / CHUNK_SIZE_METERS),
-      (s16)std::floorf(player_info_retriever.PlayerVehicleZ() / CHUNK_SIZE_METERS)};
+  ChunkCoordinates userChunk = {(s16)std::floorf(player_info_retriever.PlayerVehicleX() / CHUNK_SIZE_METERS),
+                                (s16)std::floorf(player_info_retriever.PlayerVehicleY() / CHUNK_SIZE_METERS),
+                                (s16)std::floorf(player_info_retriever.PlayerVehicleZ() / CHUNK_SIZE_METERS)};
 
   return userChunk;
 }
 
-ScoredActions* AI::GetCurrentScoredActions(ChunkCoordinates chunkCoordinates)
+AdvantageUpdatingState* AI::GetCurrentState(ChunkCoordinates chunkCoordinates)
 {
   Chunk*& chunk = chunk_coord_to_chunk_map[chunkCoordinates];
   if (chunk == nullptr)
@@ -184,17 +185,17 @@ ScoredActions* AI::GetCurrentScoredActions(ChunkCoordinates chunkCoordinates)
 
   if (player_info_retriever.GoingTheWrongWay())
   {
-    return &(chunk->going_wrong_way_actions);
+    return &(chunk->going_wrong_way_state);
   }
   else
   {
-    return &(chunk->going_right_way_actions);
+    return &(chunk->going_right_way_state);
   }
 }
 
 float AI::CalculateReward()
 {
-  return player_info_retriever.PlayerSpeed() * (player_info_retriever.GoingTheWrongWay() ? -1 : 1);
+  return (player_info_retriever.PlayerSpeed()-prevPlayerSpeed) * (player_info_retriever.GoingTheWrongWay() ? -1 : 1);
 }
 
 Action AI::ChooseAction(ScoredActions* actions, bool* action_chosen_randomly)
@@ -281,8 +282,7 @@ void AI::CheckForMissedFramesAndHandle(const u32 thisFrame)
       AILog("Frames lost: %i", frameDiff);
       did_q_learning_last_frame = false;
 
-      LogToFileListener("> FRAMESLOST %i (ct=%i)", frameDiff,
-                        skip_learning_because_cant_access_info_frames_lost);
+      LogToFileListener("> FRAMESLOST %i (ct=%i)", frameDiff, skip_learning_because_cant_access_info_frames_lost);
     }
     else
     {
@@ -291,10 +291,8 @@ void AI::CheckForMissedFramesAndHandle(const u32 thisFrame)
     addressTranslationDisabledLastInputRequest = false;
   }
 
-  u32 expectedTotalFrames =
-      1 + (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
-           skip_learning_because_cant_access_info_frames_lost +
-           generate_inputs_but_dont_learn_frame_count);
+  u32 expectedTotalFrames = 1 + (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
+                                 skip_learning_because_cant_access_info_frames_lost + generate_inputs_but_dont_learn_frame_count);
   if (thisFrame != expectedTotalFrames)
   {
     AILog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
@@ -303,14 +301,12 @@ void AI::CheckForMissedFramesAndHandle(const u32 thisFrame)
     u32 frameDiff = thisFrame - expectedTotalFrames;
     skip_learning_because_cant_access_info_frames_lost += frameDiff;
 
-    LogToFileListener("> FRAMESLOST unknown %i (ct=%i)", frameDiff,
-                      skip_learning_because_cant_access_info_frames_lost);
+    LogToFileListener("> FRAMESLOST unknown %i (ct=%i)", frameDiff, skip_learning_because_cant_access_info_frames_lost);
   }
 }
 bool AI::CheckThatAIIsAlive()
 {
-  if (player_info_retriever.CrashToRestoreFrameCount() > 0 ||
-      player_info_retriever.DuringRestoreFrameCount() > 0)
+  if (player_info_retriever.CrashToRestoreFrameCount() > 0 || player_info_retriever.DuringRestoreFrameCount() > 0)
   {
     if (debug_info_enabled)
     {
@@ -320,8 +316,7 @@ bool AI::CheckThatAIIsAlive()
     did_q_learning_last_frame = false;
     skip_learning_because_crashing_frame_count++;
 
-    LogToFileListener("> SKIP because crashing (ct=%i)",
-                      skip_learning_because_crashing_frame_count);
+    LogToFileListener("> SKIP because crashing (ct=%i)", skip_learning_because_crashing_frame_count);
 
     cached_inputs = {};
     return false;
@@ -337,8 +332,7 @@ void AI::UpdateLapsAndRestoreCount()
       PanicAlert("Something went wrong during lap number tracking!");
     }
 
-    u32 lapTimeMillis = player_info_retriever.PreviousLapTimeMillis() +
-                        player_info_retriever.PreviousLapTimeSecs() * 1000 +
+    u32 lapTimeMillis = player_info_retriever.PreviousLapTimeMillis() + player_info_retriever.PreviousLapTimeSecs() * 1000 +
                         player_info_retriever.PreviousLapTimeMins() * 60 * 1000;
 
     lap_times_millis.push_back(lapTimeMillis);
@@ -373,17 +367,29 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   ///
   /// PERFORM CHECKS & UPDATE CERTAIN STATS
   ///
-  if (!CheckForCorrectControllerIndex(pad_index) || !CheckThatMemoryCanBeAccessed()) { return {}; }
+  if (!CheckForCorrectControllerIndex(pad_index) || !CheckThatMemoryCanBeAccessed())
+  {
+    return {};
+  }
 
   u32 thisFrame = player_info_retriever.TotalFrames();
 
-  if (!CheckThatRaceHasStarted(thisFrame)) { return {}; }
-  if (!CheckThatThisIsANewFrame(thisFrame)) { return cached_inputs; }
+  if (!CheckThatRaceHasStarted(thisFrame))
+  {
+    return {};
+  }
+  if (!CheckThatThisIsANewFrame(thisFrame))
+  {
+    return cached_inputs;
+  }
   CheckForMissedFramesAndHandle(thisFrame);
 
   frame_at_last_input_request = thisFrame;
 
-  if (!CheckThatAIIsAlive()) { return {}; }
+  if (!CheckThatAIIsAlive())
+  {
+    return {};
+  }
   UpdateLapsAndRestoreCount();
 
   ///
@@ -392,36 +398,43 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
 
   ChunkCoordinates userChunk = CalculateUserChunk();
 
-  LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s", player_info_retriever.PlayerVehicleX(),
-                    player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ(),
-                    userChunk.x, userChunk.y, userChunk.z,
+  LogToFileListener("> LOC P(%f;%f;%f) C(%i;%i;%i) %s", player_info_retriever.PlayerVehicleX(), player_info_retriever.PlayerVehicleY(),
+                    player_info_retriever.PlayerVehicleZ(), userChunk.x, userChunk.y, userChunk.z,
                     player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
 
-  ScoredActions* scoredActions = GetCurrentScoredActions(userChunk);
+  AdvantageUpdatingState* currentState = GetCurrentState(userChunk);
 
   float reward = NAN;
-  float max_future_reward = NAN;
-  float old_score = NAN;
-  float new_score = NAN;
+  float old_advantage = NAN;
+  float new_advantage = NAN;
+  float old_EOV = NAN;
+  float new_EOV = NAN;
   if (did_q_learning_last_frame)
   {
     learning_occured_frame_count++;
 
-    // Update q-value using bellman equation
     reward = CalculateReward();
+    float deltaTSeconds = 1;// / 60.0f;
 
-    old_score = previous_scored_actions->ScoreForAction(previous_action);
-    max_future_reward = scoredActions->BestScore();
+    float discounted_new_EOV = DISCOUNT_RATE * (currentState->expectedOptimalValue);
+    old_EOV = previous_advantage_updating_state->expectedOptimalValue;
+    float reference_advantage_before_update = previous_advantage_updating_state->advantages.BestScore();
 
-    float learned_score = reward + (DISCOUNT_RATE * max_future_reward) - old_score;
+    float base_new_advantage = reference_advantage_before_update + ((reward + discounted_new_EOV - old_EOV) / deltaTSeconds);
+    old_advantage = previous_advantage_updating_state->advantages.ScoreForAction(previous_action);
+    new_advantage = MoveValueTowards(ADVANTAGE_UPDATE_RATE, old_advantage, base_new_advantage);
+    previous_advantage_updating_state->advantages.SetActionScore(previous_action, new_advantage);
 
-    new_score = old_score + (LEARNING_RATE * learned_score);
-    previous_scored_actions->SetActionScore(previous_action, new_score);
+    float reference_advantage_after_update = previous_advantage_updating_state->advantages.BestScore();
+    float ref_diff = (reference_advantage_after_update - reference_advantage_before_update);
 
-    LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)",
-                      previous_going_wrong_way ? "W" : "R", previous_chunk_coords.x,
-                      previous_chunk_coords.y, previous_chunk_coords.z,
-                      ActionHelper::GetActionName(previous_action).c_str(), old_score, new_score,
+    float base_new_EOV = previous_advantage_updating_state->expectedOptimalValue + (ref_diff / ADVANTAGE_UPDATE_RATE);
+    new_EOV = MoveValueTowards(EOV_UPDATE_RATE, old_EOV, base_new_EOV);
+    previous_advantage_updating_state->expectedOptimalValue = new_EOV;
+
+    LogToFileListener("> LEARN @%s(%i;%i;%i) A[%s] oA=%.10f nA=%.10f oV=%.10f nV=%.10f (ct=%i)", previous_going_wrong_way ? "W" : "R",
+                      previous_chunk_coords.x, previous_chunk_coords.y, previous_chunk_coords.z,
+                      ActionHelper::GetActionName(previous_action).c_str(), old_advantage, new_advantage, old_EOV, new_EOV,
                       learning_occured_frame_count);
   }
   else
@@ -430,11 +443,32 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     LogToFileListener("> NOLEARN (ct=%i)", generate_inputs_but_dont_learn_frame_count);
   }
 
-  bool action_chosen_randomly;
-  Action action_to_take = ChooseAction(scoredActions, &action_chosen_randomly);
+  for (u32 i = 0; i < NORMALIZATIONS_PER_FRAME; i++)
+  {
+    u32 randIdx = std::uniform_int_distribution<u32>(0, (u32)(chunk_coord_to_chunk_map.size() - 1))(generator);
+    auto pair = *std::next(std::begin(chunk_coord_to_chunk_map), randIdx);
+    ChunkCoordinates chunkLoc = pair.first;
+    Chunk* random_chunk = pair.second;
 
-  LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"),
-                    ActionHelper::GetActionName(action_to_take).c_str());
+    bool wrong_way = std::bernoulli_distribution(0.5)(generator);
+    AdvantageUpdatingState* random_state = &(wrong_way ? random_chunk->going_wrong_way_state : random_chunk->going_right_way_state);
+
+    Action random_action = (Action)action_index_distribution(generator);
+    float old_score = random_state->advantages.ScoreForAction(random_action);
+    float base_new_score = old_score - random_state->advantages.BestScore();
+    float newScore = MoveValueTowards(NORMALIZATION_RATE, old_score, base_new_score);
+    random_state->advantages.SetActionScore(random_action, newScore);
+
+    //LogToFileListener("> NORM @%s(%i;%i;%i) A[%s] o=%.10f n=%.10f (ct=%i)", wrong_way ? "W" : "R", chunkLoc.x, chunkLoc.y, chunkLoc.z,
+    //                  ActionHelper::GetActionName(random_action).c_str(), old_score, newScore);
+  }
+
+  ScoredActions curStateAdvantages = currentState->advantages;
+
+  bool action_chosen_randomly;
+  Action action_to_take = ChooseAction(&curStateAdvantages, &action_chosen_randomly);
+
+  LogToFileListener("> ACT %s [%s]", (action_chosen_randomly ? "RAND" : "BEST"), ActionHelper::GetActionName(action_to_take).c_str());
 
   ///
   /// FINAL LOGGING AND CLEANUP
@@ -447,50 +481,43 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     AILog("============================================================");
     AILog("Frame Ct:                                %i", player_info_retriever.TotalFrames());
     AILog("Frame Ct total learning:                 %i", learning_occured_frame_count);
-    AILog("Frames lost because can't access info:   %i",
-          skip_learning_because_cant_access_info_frames_lost);
-    AILog("Frame Ct skip learning because death:    %i",
-          skip_learning_because_crashing_frame_count);
-    AILog("Frame Ct gen inputs but don't learn:     %i",
-          generate_inputs_but_dont_learn_frame_count);
+    AILog("Frames lost because can't access info:   %i", skip_learning_because_cant_access_info_frames_lost);
+    AILog("Frame Ct skip learning because death:    %i", skip_learning_because_crashing_frame_count);
+    AILog("Frame Ct gen inputs but don't learn:     %i", generate_inputs_but_dont_learn_frame_count);
     AILog("Restore count: %i", restore_count);
     AILog("Chunk count: %i", chunk_coord_to_chunk_map.size());
     AILog("State count: %i", chunk_coord_to_chunk_map.size() * 2);
-    AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(),
-          player_info_retriever.PlayerVehicleY(), player_info_retriever.PlayerVehicleZ());
+    AILog("Pos:    (%4f, %4f, %4f)", player_info_retriever.PlayerVehicleX(), player_info_retriever.PlayerVehicleY(),
+          player_info_retriever.PlayerVehicleZ());
     AILog("State:  (%3i, %3i, %3i) | %s way", userChunk.x, userChunk.y, userChunk.z,
           player_info_retriever.GoingTheWrongWay() ? "WRONG" : "RIGHT");
     AILog("Speed:  %7.2f", player_info_retriever.PlayerSpeed());
-    AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)",
-          scoredActions->ScoreForAction(Action::SHARP_TURN_LEFT),
-          scoredActions->ScoreForAction(Action::SOFT_TURN_LEFT),
-          scoredActions->ScoreForAction(Action::FORWARD),
-          scoredActions->ScoreForAction(Action::SOFT_TURN_RIGHT),
-          scoredActions->ScoreForAction(Action::SHARP_TURN_RIGHT));
-    AILog("        [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)",
-          scoredActions->ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
-          scoredActions->ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT),
-          scoredActions->ScoreForAction(Action::BOOST_AND_FORWARD),
-          scoredActions->ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
-          scoredActions->ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
-    AILog("        [%7.2f,        ,        ,        , %7.2f] (drift)",
-          scoredActions->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
-          scoredActions->ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
+    AILog("EOV:    %7.2f", currentState->expectedOptimalValue);
+    AILog("Scores: [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (no boost)", curStateAdvantages.ScoreForAction(Action::SHARP_TURN_LEFT),
+          curStateAdvantages.ScoreForAction(Action::SOFT_TURN_LEFT), curStateAdvantages.ScoreForAction(Action::FORWARD),
+          curStateAdvantages.ScoreForAction(Action::SOFT_TURN_RIGHT), curStateAdvantages.ScoreForAction(Action::SHARP_TURN_RIGHT));
+    AILog("        [%7.2f, %7.2f, %7.2f, %7.2f, %7.2f] (boost)", curStateAdvantages.ScoreForAction(Action::BOOST_AND_SHARP_TURN_LEFT),
+          curStateAdvantages.ScoreForAction(Action::BOOST_AND_SOFT_TURN_LEFT), curStateAdvantages.ScoreForAction(Action::BOOST_AND_FORWARD),
+          curStateAdvantages.ScoreForAction(Action::BOOST_AND_SOFT_TURN_RIGHT),
+          curStateAdvantages.ScoreForAction(Action::BOOST_AND_SHARP_TURN_RIGHT));
+    AILog("        [%7.2f,        ,        ,        , %7.2f] (drift)", curStateAdvantages.ScoreForAction(Action::DRIFT_AND_SHARP_TURN_LEFT),
+          curStateAdvantages.ScoreForAction(Action::DRIFT_AND_SHARP_TURN_RIGHT));
     AILog("Action type:  %s", ACTION_NAMES.at(action_to_take).c_str());
     AILog("Way chosen:   %s", action_chosen_randomly ? "RANDOM" : "BEST");
     AILog("Explore rate: %f", CalculateExplorationRate());
-    AILog("Action score: %f", scoredActions->ScoreForAction(action_to_take));
+    AILog("Action score: %f", curStateAdvantages.ScoreForAction(action_to_take));
     if (did_q_learning_last_frame)
     {
-      if (reward == NAN || max_future_reward == NAN || old_score == NAN || new_score == NAN)
+      if (reward == NAN || old_advantage == NAN || new_advantage == NAN || old_EOV == NAN || new_EOV == NAN)
       {
         PanicAlert("Score calculation not done even though it should have been!!!!");
       }
 
       AILog("Reward for prev action: %f", reward);
-      AILog("Max future reward:      %f", max_future_reward);
-      AILog("Prev action old score:  %f", old_score);
-      AILog("Prev action new score:  %f", new_score);
+      AILog("Prev action old adv:  %f", old_advantage);
+      AILog("Prev action new adv:  %f", new_advantage);
+      AILog("Prev action old EOV:  %f", old_EOV);
+      AILog("Prev action new EOV:  %f", new_EOV);
     }
     else
     {
@@ -501,16 +528,13 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
     }
 
     std::ostringstream oss;
-    oss << "Time to calculate: "
-        << std::chrono::duration_cast<std::chrono::microseconds>(calc_end_time - calc_start_time)
-               .count()
+    oss << "Time to calculate: " << std::chrono::duration_cast<std::chrono::microseconds>(calc_end_time - calc_start_time).count()
         << " microseconds";
     AILog(oss.str().c_str());
   }
 
   if (thisFrame != (learning_occured_frame_count + skip_learning_because_crashing_frame_count +
-                    skip_learning_because_cant_access_info_frames_lost +
-                    generate_inputs_but_dont_learn_frame_count))
+                    skip_learning_because_cant_access_info_frames_lost + generate_inputs_but_dont_learn_frame_count))
   {
     PanicAlert("Frame counts have gotten off!!");
   }
@@ -522,7 +546,8 @@ GCPadStatus AI::GetNextInput(const u32 pad_index)
   }
 
   did_q_learning_last_frame = true;
-  previous_scored_actions = scoredActions;
+  prevPlayerSpeed = player_info_retriever.PlayerSpeed();
+  previous_advantage_updating_state = currentState;
   previous_going_wrong_way = player_info_retriever.GoingTheWrongWay();
   previous_chunk_coords = userChunk;
   previous_action = action_to_take;

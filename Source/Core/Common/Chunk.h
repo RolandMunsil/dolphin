@@ -2,15 +2,21 @@
 
 #include "Actions.h"
 
+struct AdvantageUpdatingState
+{
+  float expectedOptimalValue;
+  ScoredActions advantages;
+};
+
 struct Chunk
 {
-  ScoredActions going_right_way_actions;
-  ScoredActions going_wrong_way_actions;
+  AdvantageUpdatingState going_right_way_state;
+  AdvantageUpdatingState going_wrong_way_state;
 
   Chunk()
   {
-    going_right_way_actions = ScoredActions();
-    going_wrong_way_actions = ScoredActions();
+    going_right_way_state = AdvantageUpdatingState();
+    going_wrong_way_state = AdvantageUpdatingState();
   }
 };
 

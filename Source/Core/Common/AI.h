@@ -14,7 +14,7 @@ class AI
   const size_t INITIAL_MAP_BUCKET_COUNT = 10000;
   const u32 SECONDS_BETWEEN_STATE_SAVES = 60 * 10;
 
-  const float CHUNK_SIZE_METERS = 16;
+  const float CHUNK_SIZE_METERS = 30;
 
   // Exploration rate controls how often it will just pick a random value (instead of picking the
   // best value)
@@ -26,11 +26,13 @@ class AI
     return std::max(0.0f, 1 - (learning_occured_frame_count / timeToZeroInFrames));
   };
 
-  // Learning rate controls how quickly the network replaces the old value with the new
-  const float LEARNING_RATE = 0.6f;
-
+  const float ADVANTAGE_UPDATE_RATE = 0.6f;
+  const float EOV_UPDATE_RATE = 0.6f;
+  const float NORMALIZATION_RATE = 0.8f;
+  const u32 NORMALIZATIONS_PER_FRAME = 100;
+  
   // Discount rate controls how much the network cares about future rewards
-  const float DISCOUNT_RATE = 0.5f;
+  const float DISCOUNT_RATE = 0.9f;
 
 public:
   AI();
@@ -51,7 +53,7 @@ private:
   void UpdateLapsAndRestoreCount();
 
   ChunkCoordinates CalculateUserChunk();
-  ScoredActions* GetCurrentScoredActions(ChunkCoordinates chunkCoords);
+  AdvantageUpdatingState* GetCurrentState(ChunkCoordinates chunkCoords);
   float CalculateReward();
   Action ChooseAction(ScoredActions* state, bool* action_chosen_randomly);
 
@@ -67,10 +69,12 @@ private:
   PlayerInfoRetriever player_info_retriever;
 
   bool did_q_learning_last_frame;
-  ScoredActions* previous_scored_actions;
+  AdvantageUpdatingState* previous_advantage_updating_state;
   bool previous_going_wrong_way;
   ChunkCoordinates previous_chunk_coords;
   Action previous_action;
+
+  float prevPlayerSpeed;
 
   bool enabled;
   bool toggle_button_pressed_previous;
