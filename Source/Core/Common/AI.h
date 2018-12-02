@@ -14,11 +14,13 @@ class AI
   const size_t INITIAL_MAP_BUCKET_COUNT = 10000;
   const u32 SECONDS_BETWEEN_STATE_SAVES = 60 * 10;
 
-  const float CHUNK_SIZE_METERS = 16;
+  const bool REWARD_USING_ACCELERATION = false;
+  const bool MODE_IS_Q_LEARNING = true;
 
-  // Exploration rate controls how often it will just pick a random value (instead of picking the
-  // best value)
-  // exploration rate decreases linearly over the course of 4 hours
+  const float CHUNK_SIZE_METERS = 30;
+
+  // Exploration rate controls how often it will just pick a random value (instead of picking the best value)
+  // exploration rate decreases linearly over the course of N hours
   const float EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS = 5;
   float CalculateExplorationRate()
   {
@@ -30,7 +32,7 @@ class AI
   const float LEARNING_RATE = 0.6f;
 
   // Discount rate controls how much the network cares about future rewards
-  const float DISCOUNT_RATE = 0.5f;
+  const float DISCOUNT_RATE = 0.8f;
 
 public:
   AI();
@@ -72,6 +74,8 @@ private:
   ChunkCoordinates previous_chunk_coords;
   Action previous_action;
 
+  float prevPlayerSpeed;
+
   bool enabled;
   bool toggle_button_pressed_previous;
 
@@ -84,6 +88,7 @@ private:
   u32 generate_inputs_but_dont_learn_frame_count;
 
   u32 restore_count;
+  bool betweenDeathAndRestore;
 
   bool addressTranslationDisabledLastInputRequest;
   u32 frameCountBeforeAddressTranslationDisabled;

@@ -1,4 +1,4 @@
-const logFile = "dolphin.log";
+const logFile = "dolphin 1543620517.log";
 
 let textOutput: HTMLTextAreaElement;
 window.onload = function() { 
@@ -16,9 +16,14 @@ function startLogParsing() {
     fetch("logs/"+logFile)
     .then(response => response.text())
     .then(function(text) {
-        const parser = new LogParser(text);
-        const info = parser.parse();
-        displayInfo(info);
+        const parser = new ShortlogParser(text);
+        const [, laps, deaths] = parser.parse();
+        writeLineToTextDisplay('Laps times (millis):');
+        writeLineToTextDisplay(laps.map(l=>`${l.endTime},${l.explorationRate},${l.lengthMillis}`).join("\r\n"));
+        writeLineToTextDisplay('Death times (millis):');
+        writeLineToTextDisplay(deaths.map(d=>`${d.time},${d.explorationRate}`).join("\r\n"));
+        //const info = parser.parse();
+        //displayInfo(info);
     });
 }
 
