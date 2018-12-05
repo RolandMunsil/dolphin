@@ -15,6 +15,8 @@ class AI
   const u32 SECONDS_BETWEEN_STATE_SAVES = 60 * 10;
 
   const bool REWARD_USING_ACCELERATION = false;
+  //NOTE: this variable doesn't actually do anything (if you want to use Advantage Updating checkout the corresponding branch)
+  //It's mainly just here as a reminder that the mode is one of the parameters that can be changed
   const bool MODE_IS_Q_LEARNING = true;
 
   const float CHUNK_SIZE_METERS = 30;
