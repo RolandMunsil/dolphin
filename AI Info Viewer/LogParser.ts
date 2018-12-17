@@ -36,9 +36,14 @@ class LogParser extends AbstractLogParser {
                     break;
                 case "LAP":
                     const split = this.currentLine.split(' ');
-                    historyLog.laps.push(new Lap(historyLog.getTotalFramesSoFar(), parseInt(split[3])));
+                    const lapTimeMillis = parseInt(split[3]);
+                    historyLog.laps.push(new Lap(historyLog.getTotalFramesSoFar(), lapTimeMillis));
                     const expectedLapNum = parseInt(split[2]);
                     assert(expectedLapNum === historyLog.laps.length-1, "Lap number mismatch.");
+
+                    const curFrames = historyLog.getTotalFramesSoFar();
+                    const explorationRate = Math.max(0, 1 - (this.totalLearn / (sessionInfo.hoursToNoExploration * 60 * 60 * 60)));
+                    console.log(`${curFrames},${explorationRate},${lapTimeMillis}`);
                     this.moveToNextLine();
                     break;
                 case "LOC":

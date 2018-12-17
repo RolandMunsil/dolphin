@@ -20,10 +20,13 @@ function startLogParsing() {
         const [, laps, deaths] = parser.parse();
         writeLineToTextDisplay('Laps times (millis):');
         writeLineToTextDisplay(laps.map(l=>`${l.endTime},${l.explorationRate},${l.lengthMillis}`).join("\r\n"));
+        writeLineToTextDisplay();
         writeLineToTextDisplay('Death times (millis):');
         writeLineToTextDisplay(deaths.map(d=>`${d.time},${d.explorationRate}`).join("\r\n"));
-        //const info = parser.parse();
-        //displayInfo(info);
+
+        // const parser = new LogParser(text);
+        // const info = parser.parse();
+        // displayInfo(info);
     });
 }
 
