@@ -15,15 +15,34 @@ class AI
   const u32 SECONDS_BETWEEN_STATE_SAVES = 60 * 10;
 
   const bool REWARD_USING_ACCELERATION = false;
+
   //NOTE: this variable doesn't actually do anything (if you want to use Advantage Updating checkout the corresponding branch)
   //It's mainly just here as a reminder that the mode is one of the parameters that can be changed
   const bool MODE_IS_Q_LEARNING = true;
 
-  const float CHUNK_SIZE_METERS = 30;
+
+  /*
+
+
+  THINGS TO TRY:
+  For runs that converge quickly, try shortening time to expl=0
+  Try disabling ability to boost so it doesn't drain it's health
+  See what happens when you remove the "wrong way" states
+  Try advantage updating with best strat
+
+  Try other games
+
+
+  */
+
+
+
+
+  const float CHUNK_SIZE_METERS = 40;
 
   // Exploration rate controls how often it will just pick a random value (instead of picking the best value)
   // exploration rate decreases linearly over the course of N hours
-  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS = 5;
+  const float EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS = 3;
   float CalculateExplorationRate()
   {
     float timeToZeroInFrames = 60 * 60 * 60 * EXPLORATION_RATE_TIME_TO_ZERO_IN_LEARNING_HOURS;
@@ -34,7 +53,7 @@ class AI
   const float LEARNING_RATE = 0.6f;
 
   // Discount rate controls how much the network cares about future rewards
-  const float DISCOUNT_RATE = 0.8f;
+  const float DISCOUNT_RATE = 0.5f;
 
 public:
   AI();
